@@ -1,0 +1,43 @@
+---
+- name: Deploy k3s Control Plane with etcd
+  hosts: k8ctl
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Ensure k3s directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'
+
+    - name: Create k3s config.yaml for etcd
+      ansible.builtin.template:
+        src: templates/k3s_config_etcd.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml
+        mode: '0644'
+      notify: Restart k3s service
+
+    - name: Install k3s server
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--cluster-init" sh -s - server
+      args:
+        creates: /usr/local/bin/k3s
+      when: inventory_hostname == groups['k8ctl'][0] # Only run cluster-init on the first node
+
+    - name: Install k3s server on other nodes
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | K3S_URL="https://{{ hostvars[groups['k8ctl'][0]]['ansible_host'] }}:6443" K3S_TOKEN="{{ hostvars[groups['k8ctl'][0]]['k3s_token'] }}" sh -s - server
+      args:
+        creates: /usr/local/bin/k3s
+      when: inventory_hostname != groups['k8ctl'][0]
+
+    - name: Get k3s token from first node
+      ansible.builtin.shell: cat /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_output
+      delegate_to: "{{ groups['k8ctl'][0] }}"
+      run_once: true
+      when: inventory_hostname == groups['k8ctl'][0]
+
+    - name: Set k3s token fact for other nodes
+      ansible.builtin.
