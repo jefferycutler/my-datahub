@@ -28,7 +28,7 @@ backend k3s-api-backend
     balance roundrobin
     option tcp-check
     # The inventory must have a 'k3sctl' group defined with the control plane nodes.
-    {% for host in groups['k3s_ctl'] %}
+    {% for host in groups['k3sctl'] %}
     server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:{{ k3s_api_port }} check
     {% endfor %}
 
