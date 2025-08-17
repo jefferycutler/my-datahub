@@ -1,0 +1,10 @@
+#!/bin/sh
+# This script checks if HAProxy is listening on the K3s API port.
+# It's more reliable than just checking if the process exists.
+
+# Using netstat to check for a listening socket on the specified port.
+if netstat -lnt | grep -q ":{{ k3s_api_port }}"; then
+  exit 0
+else
+  exit 1
+fi

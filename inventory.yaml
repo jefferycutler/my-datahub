@@ -1,0 +1,47 @@
+# /home/jeffc/dev/my-datahub/inventory.yaml
+#
+# Ansible inventory for the my-datahub project.
+
+all:
+  children:
+    # Kubernetes control plane nodes for the K3s cluster.
+    k3sctl:
+      hosts:
+        k801:
+        k802:
+        k803:
+
+    # Kubernetes worker nodes.
+    k8work:
+      hosts:
+        k803:
+        k804:
+        k805:
+        k806:
+        k807:
+        k808:
+
+    # Kafka cluster nodes.
+    kafka:
+      hosts:
+        kf01:
+        kf02:
+        kf03:
+        kf04:
+
+    # Load balancer nodes.
+    lb:
+      hosts:
+        lb01:
+        lb02:
+        lb03:
+
+    # Zabbix monitoring host.
+    zabbix:
+      hosts:
+        zbx01:
+
+    # Releation Databases
+    rdms:
+      hosts:
+        datahub:
