@@ -8,15 +8,19 @@
   become: yes
   gather_facts: yes
 
-  vars_files:
-    - "{{ lookup('env', 'MYDHUB') }}/secrets.yaml"
-
   vars:
     k3s_shared_ip: "192.168.30.100"
     k3s_api_port: 6443
     keepalived_interface: "{{ ansible_default_ipv4.interface }}"
 
+  vars_files:
+    - "secrets.yaml"
+
   tasks:
+    - name: Debug keepalived_vrrp_password
+      ansible.builtin.debug:
+        var: keepalived_vrrp_password
+    
     - name: Install haproxy and keepalived
       ansible.builtin.package:
         name:

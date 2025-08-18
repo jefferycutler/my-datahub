@@ -8,40 +8,56 @@ all:
     k3sctl:
       hosts:
         k801:
+          ansible_host: 192.168.30.31
         k802:
+          ansible_host: 192.168.30.32
         k803:
+          ansible_host: 192.168.30.33
 
     # Kubernetes worker nodes.
     k8work:
       hosts:
-        k803:
         k804:
+          ansible_host: 192.168.30.34
         k805:
+          ansible_host: 192.168.30.35
         k806:
+          ansible_host: 192.168.30.36
         k807:
+          ansible_host: 192.168.30.37
         k808:
+          ansible_host: 192.168.30.38
 
     # Kafka cluster nodes.
     kafka:
       hosts:
         kf01:
+          ansible_host: 192.168.30.24
         kf02:
+          ansible_host: 192.168.30.25
         kf03:
+          ansible_host: 192.168.30.26
         kf04:
+          ansible_host: 192.168.30.27
 
     # Load balancer nodes.
     lb:
       hosts:
         lb01:
+          ansible_host: 192.168.30.21
         lb02:
+          ansible_host: 192.168.30.22
         lb03:
+          ansible_host: 192.168.30.23
 
     # Zabbix monitoring host.
     zabbix:
       hosts:
         zbx01:
+          ansible_host: 192.168.30.11
 
     # Releation Databases
     rdms:
       hosts:
         datahub:
+          ansible_host: 192.168.30.10
