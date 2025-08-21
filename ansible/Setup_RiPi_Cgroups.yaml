@@ -1,0 +1,38 @@
+---
+#################################################################################
+# configure_cgroups.yaml
+#
+# Ansible playbook to configure cgroup settings on the kernel command line.
+# This is often required for container runtimes like those used by K3s/Kubernetes.
+#################################################################################
+- name: Configure cgroup memory options
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Ensure cgroup_memory=1 is on the kernel command line
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/cmdline.txt
+        regexp: '^(?!.*\bcgroup_memory=1\b)(.*)$'
+        line: '\1 cgroup_memory=1'
+        backrefs: yes
+      notify: Reboot system
+      register: cgroup_memory_change
+
+    - name: Ensure cgroup_enable=memory is on the kernel command line
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/cmdline.txt
+        regexp: '^(?!.*\bcgroup_enable=memory\b)(.*)$'
+        line: '\1 cgroup_enable=memory'
+        backrefs: yes
+      notify: Reboot system
+      register: cgroup_enable_change
+
+  handlers:
+    - name: Reboot system
+      listen: "Reboot system"
+      ansible.builtin.reboot:
+        msg: "Rebooting system to apply kernel command line changes"
+        reboot_timeout: 3600
+      when: cgroup_memory_change.changed or cgroup_enable_change.changed
