@@ -3,7 +3,7 @@
 # Setup_K3s_Agents.yaml
 #
 # Ansible playbook to install K3s agents on worker nodes and connect them
-# to the existing K3s cluster.
+# to the existing K3s cluster.  If the agent/worker k3s is installed it will skip
 #################################################################################
 - name: Install K3s agents on worker nodes
   hosts: k8work
