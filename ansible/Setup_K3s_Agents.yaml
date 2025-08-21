@@ -1,0 +1,38 @@
+---
+#################################################################################
+# Setup_K3s_Agents.yaml
+#
+# Ansible playbook to install K3s agents on worker nodes and connect them
+# to the existing K3s cluster.
+#################################################################################
+- name: Install K3s agents on worker nodes
+  hosts: k8work
+  become: yes
+  gather_facts: yes
+
+  vars:
+    k3s_url: "https://192.168.30.100:6443"
+
+  vars_files:
+    - "secrets.yaml"
+
+  tasks:
+    - name: Check that k3s_cluster_token is defined and not a placeholder
+      ansible.builtin.assert:
+        that:
+          - k3s_cluster_token is defined
+          - k3s_cluster_token != "REPLACE_WITH_YOUR_K3S_CLUSTER_TOKEN"
+        fail_msg: "Please set a valid 'k3s_cluster_token' in secrets.yaml"
+      run_once: true
+
+    - name: Install K3s agent
+      ansible.builtin.shell:
+        "curl -sfL https://get.k3s.io | K3S_NODE_NAME={{ inventory_hostname }} K3S_URL={{ k3s_url }} K3S_TOKEN={{ k3s_cluster_token }} sh -"
+      args:
+        creates: /etc/systemd/system/k3s-agent.service
+
+    - name: Ensure k3s-agent service is started and enabled
+      ansible.builtin.service:
+        name: k3s-agent
+        state: started
+        enabled: yes
