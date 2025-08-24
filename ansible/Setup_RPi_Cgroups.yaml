@@ -6,7 +6,7 @@
 # This is often required for container runtimes like those used by K3s/Kubernetes.
 #################################################################################
 - name: Configure cgroup memory options
-  hosts: all
+  hosts: k3sctl,k8work
   become: yes
   gather_facts: no
 
