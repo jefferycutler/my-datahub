@@ -27,6 +27,8 @@ all:
           ansible_host: 192.168.30.37
         k808:
           ansible_host: 192.168.30.38
+        k809:
+          ansible_host: 192.168.30.39
 
     # Kafka cluster nodes.
     kafka:
