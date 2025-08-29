@@ -29,7 +29,7 @@
         create: yes
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
-        mode: '0644'
+        mode: '0600'
 
     - name: "Set ls alias for '{{ admin_user }}'"
       ansible.builtin.lineinfile:
@@ -38,4 +38,23 @@
         create: yes
         owner: "{{ admin_user }}"
         group: "{{ admin_user }}"
-        mode: '0644'
+        mode: '0600'
+
+    - name: "Set custom bash prompt for root"
+      ansible.builtin.lineinfile:
+        path: "/root/.bashrc"
+        line: 'export PS1="\[\e[31m\]\u\[\e[m\]@\[\e[34m\]\h\[\e[m\]:\W\\$ "'
+        create: yes
+        owner: "root"
+        group: "root"
+        mode: '0600'
+
+    - name: "Set ls alias for root"
+      ansible.builtin.lineinfile:
+        path: "/root/.bashrc"
+        line: "alias ll='ls $LS_OPTIONS -lha'"
+        create: yes
+        owner: "root"
+        group: "root"
+        mode: '0600'
+
