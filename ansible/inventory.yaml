@@ -5,7 +5,7 @@
 all:
   children:
     # Kubernetes control plane nodes for the K3s cluster.
-    k3sctl:
+    k8ctl:
       hosts:
         k801:
           ansible_host: 192.168.30.31

@@ -1,0 +1,41 @@
+---
+#################################################################################
+# Setup_LinuxUsers.yaml
+#
+# Ansible playbook to create a standard user account if it does not exist
+# and grant the user sudo privileges.
+#################################################################################
+- name: Create a standard user and grant sudo access
+  hosts: all
+  become: yes
+  gather_facts: no
+ 
+  vars_files:
+    - "secrets.yaml"
+
+  tasks:
+    - name: "Ensure user '{{ admin_user }}' exists"
+      ansible.builtin.user:
+        name: "{{ admin_user }}"
+        state: present
+        shell: /bin/bash
+        groups: sudo
+        append: true
+
+    - name: "Set custom bash prompt for '{{ admin_user }}'"
+      ansible.builtin.lineinfile:
+        path: "/home/{{ admin_user }}/.bashrc"
+        line: 'export PS1="\[\e[32m\]\u\[\e[m\]@\[\e[34m\]\h\[\e[m\]:\W\\$ "'
+        create: yes
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
+
+    - name: "Set ls alias for '{{ admin_user }}'"
+      ansible.builtin.lineinfile:
+        path: "/home/{{ admin_user }}/.bashrc"
+        line: "alias ll='ls $LS_OPTIONS -lha'"
+        create: yes
+        owner: "{{ admin_user }}"
+        group: "{{ admin_user }}"
+        mode: '0644'
