@@ -1,0 +1,25 @@
+---
+#################################################################################
+# UpdateHostFile.yaml
+#
+# Ansible playbook to ensure that /etc/hosts on all managed nodes is populated
+# with entries for every host in the Ansible inventory. This allows all nodes
+# to resolve each other by their inventory hostname.
+#################################################################################
+- name: Distribute host file entries to all nodes
+  hosts: all
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Ensure all inventory hosts are in /etc/hosts
+      ansible.builtin.blockinfile:
+        path: /root/hosts.test
+        backup: yes
+        marker: "# {mark} ANSIBLE MANAGED HOSTS"
+        block: |
+          {% for host in groups['all'] %}
+          {% if hostvars[host].ansible_host is defined -%}
+          {{ hostvars[host].ansible_host }} {{ host }}
+          {% endif -%}
+          {% endfor %}
