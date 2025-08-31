@@ -1,0 +1,54 @@
+---
+#################################################################################
+# Setup_DebAutoPatch.yaml
+#
+# Ansible playbook to install and configure unattended-upgrades on Debian-based
+# systems (Debian, Ubuntu). It enables automatic security updates and configures
+# email notifications to be sent to the administrator.
+#################################################################################
+- name: Install and configure unattended-upgrades
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - "secrets.yaml"
+
+  tasks:
+    - name: "Configure unattended upgrades for Debian-based systems"
+      block:
+        - name: "Ensure unattended-upgrades and apt-listchanges are installed"
+          ansible.builtin.apt:
+            name:
+              - unattended-upgrades
+              - apt-listchanges
+            state: present
+            update_cache: yes
+
+        - name: "Configure apt-listchanges to send emails"
+          ansible.builtin.debconf:
+            name: apt-listchanges
+            question: "{{ item.question }}"
+            value: "{{ item.value }}"
+            vtype: "{{ item.vtype }}"
+          loop:
+            - { question: 'apt-listchanges/which', value: 'mail', vtype: 'select' }
+            - { question: 'apt-listchanges/email-address', value: '{{ admin_email }}', vtype: 'string' }
+            - { question: 'apt-listchanges/email-format', value: 'text', vtype: 'select' }
+
+        - name: "Configure unattended-upgrades to send email notifications"
+          ansible.builtin.lineinfile:
+            path: /etc/apt/apt.conf.d/50unattended-upgrades
+            regexp: '^//?Unattended-Upgrade::Mail\s".*";'
+            line: 'Unattended-Upgrade::Mail "{{ admin_email }}";'
+
+        - name: "Enable automatic updates by creating 20auto-upgrades"
+          ansible.builtin.copy:
+            dest: /etc/apt/apt.conf.d/20auto-upgrades
+            content: |
+              APT::Periodic::Update-Package-Lists "1";
+              APT::Periodic::Unattended-Upgrade "1";
+            owner: root
+            group: root
+            mode: '0644'
+      when: ansible_facts['os_family'] == "Debian"
