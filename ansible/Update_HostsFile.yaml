@@ -14,7 +14,7 @@
   tasks:
     - name: Ensure all inventory hosts are in /etc/hosts
       ansible.builtin.blockinfile:
-        path: /root/hosts.test
+        path: /etc/hosts
         backup: yes
         marker: "# {mark} ANSIBLE MANAGED HOSTS"
         block: |
