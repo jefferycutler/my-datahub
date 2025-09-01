@@ -1,0 +1,50 @@
+---
+#################################################################################
+# Setup_MailAgent.yaml
+#
+# Ansible playbook to install and configure msmtp as a system-wide mail
+# transport agent (MTA) for sending outbound emails via a Gmail account.
+#################################################################################
+- name: Install and configure msmtp for Gmail
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - "secrets.yaml"
+
+  tasks:
+    - name: "Configure msmtp for Debian-based systems"
+      block:
+        - name: "Install msmtp and msmtp-mta"
+          ansible.builtin.apt:
+            name:
+              - msmtp
+              - msmtp-mta
+              - mailutils
+            state: present
+            update_cache: yes
+
+        - name: "Create msmtp log file"
+          ansible.builtin.file:
+            path: /var/log/msmtp.log
+            state: touch
+            owner: msmtp
+            group: msmtp
+            mode: '0660'
+
+        - name: "Configure msmtp for Gmail"
+          ansible.builtin.template:
+            src: templates/msmtprc.j2
+            dest: /etc/msmtprc
+            owner: root
+            group: msmtp
+            mode: '0640'
+
+        - name: Ensure msmtpd is started and enabled
+          ansible.builtin.systemd:
+            name: msmtpd
+            state: started
+            enabled: true
+
+      when: ansible_facts['os_family'] == "Debian"
