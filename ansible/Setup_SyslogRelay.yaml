@@ -1,0 +1,50 @@
+---
+#################################################################################
+# Setup_SyslogRelay.yaml
+#
+# Ansible playbook to deploy rsyslog configuration for forwarding logs to Kafka.
+# This playbook targets the load balancer nodes, installs necessary packages,
+# configures rsyslog, and ensures the service is running.
+#################################################################################
+- name: Deploy rsyslog Kafka configuration to Load Balancers
+  hosts: lb
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Define Kafka brokers from your inventory.
+    # This joins the list of brokers into a single, comma-separated string.
+    kafka_brokers_string: "{{ (groups['kafka'] | map('regex_replace', '^(.*)$', '\\1:9092') | list) | join(',') }}"
+
+  tasks:
+    - name: Ensure rsyslog and omkafka module are installed
+      ansible.builtin.apt:
+        name:
+          - rsyslog
+          - rsyslog-kafka
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Create rsyslog.d directory if it does not exist
+      ansible.builtin.file:
+        path: /etc/rsyslog.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Deploy rsyslog configuration for Kafka
+      ansible.builtin.template:
+        src: templates/90-kafka.conf.j2
+        dest: /etc/rsyslog.d/90-kafka.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart rsyslog
+
+  handlers:
+    - name: restart rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted

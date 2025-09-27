@@ -1,0 +1,34 @@
+# Ansible-managed: Forward all local logs to Kafka
+
+# provides UDP syslog reception
+module(load="imudp")
+input(type="imudp" port="514")
+
+# provides TCP syslog reception
+module(load="imtcp")
+input(type="imtcp" port="514")
+
+# Load the omkafka module
+module(load="omkafka")
+
+# Define a template for JSON formatting
+template(name="json-template" type="list") {
+    constant(value="{")
+    constant(value="\"@timestamp\":\"")
+    property(name="timereported" dateFormat="rfc3339")
+    constant(value="\",\"host\":\"")
+    property(name="hostname")
+    constant(value="\",\"app-name\":\"")
+    property(name="app-name")
+    constant(value="\",\"procid\":\"")
+    property(name="procid")
+    constant(value="\",\"msg\":\"")
+    property(name="msg" format="json")
+    constant(value="\"}")
+}
+
+# Action to send all messages to Kafka
+action(type="omkafka"
+       topic="rsyslog"
+       broker=["{{ kafka_brokers_string }}"]
+       template="json-template")
