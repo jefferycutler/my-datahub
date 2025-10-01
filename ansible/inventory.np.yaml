@@ -1,0 +1,49 @@
+# Ansible inventory for the my-datahub project.
+all:
+  children:
+    # Kubernetes control plane nodes for the K3s cluster.
+    k8ctl:
+      vars:
+        architecture: x86_64
+      hosts:
+        tk801:
+          ansible_host: 192.168.20.31
+
+    # Kubernetes worker nodes.
+    k8work:
+      vars:
+        architecture: x86_64
+      hosts:
+        tk802:
+          ansible_host: 192.168.20.32
+        tk803:
+          ansible_host: 192.168.20.33
+        tk804:
+          ansible_host: 192.168.20.34
+
+    # Kafka cluster nodes.
+    kafka:
+      vars:
+        architecture: x86_64
+      hosts:
+        tkf01:
+          ansible_host: 192.168.30.21
+        tkf02:
+          ansible_host: 192.168.30.22
+        tkf03:
+          ansible_host: 192.168.30.23
+
+    # Load balancer nodes.
+    lb:
+      vars:
+        architecture: x86_64
+      hosts:
+        tlb01:
+          ansible_host: 192.168.30.11
+
+    # Releation Databases
+    rdms:
+      hosts:
+        datahub:
+          ansible_host: 192.168.20.10
+          architecture: x86_64
