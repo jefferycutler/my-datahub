@@ -27,11 +27,11 @@ all:
         architecture: x86_64
       hosts:
         tkf01:
-          ansible_host: 192.168.30.21
+          ansible_host: 192.168.20.21
         tkf02:
-          ansible_host: 192.168.30.22
+          ansible_host: 192.168.20.22
         tkf03:
-          ansible_host: 192.168.30.23
+          ansible_host: 192.168.20.23
 
     # Load balancer nodes.
     lb:
@@ -39,7 +39,7 @@ all:
         architecture: x86_64
       hosts:
         tlb01:
-          ansible_host: 192.168.30.11
+          ansible_host: 192.168.20.11
 
     # Releation Databases
     rdms:
