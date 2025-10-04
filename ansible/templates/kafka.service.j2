@@ -1,0 +1,19 @@
+[Unit]
+Description=Kafka Service
+Documentation=https://kafka.apache.org/
+Requires=network.target remote-fs.target
+After=network.target remote-fs.target
+Wants=syslog.target
+
+[Service]
+Type=simple
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties --override process.roles={{ 'broker,controller' if kafka_is_controller | default(false) else 'broker' }}
+ExecStop=/opt/kafka/bin/kafka-server-stop.sh
+WorkingDirectory=/opt/kafka
+User=kafka
+Group=kafka
+TimeoutSec=30
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
