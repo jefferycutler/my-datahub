@@ -1,0 +1,11 @@
+// This JAAS file defines the users and credentials that the Kafka broker
+// will use to authenticate clients and other brokers via SASL/SCRAM.
+// It is referenced by the KAFKA_OPTS environment variable in the systemd service.
+
+KafkaServer {
+    org.apache.kafka.common.security.scram.ScramLoginModule required
+    username="{{ kafka_admin_user }}"
+    password="{{ kafka_admin_pw }}"
+    user_{{ kafka_rw_user }}="{{ kafka_rw_pw }}"
+    user_{{ kafka_ro_user }}="{{ kafka_ro_pw }}";
+};

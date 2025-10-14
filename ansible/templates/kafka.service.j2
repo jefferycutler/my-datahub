@@ -7,7 +7,7 @@ Wants=syslog.target
 
 [Service]
 Type=simple
-ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties --override process.roles={{ 'broker,controller' if kafka_is_controller | default(false) else 'broker' }}
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 WorkingDirectory=/opt/kafka
 User=kafka

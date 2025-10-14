@@ -11,25 +11,33 @@
   vars_files: [secrets.yaml]
   tasks:
   #################################################################
-  # Create a zookeeper user and the necessary folders
+  # Create a Kafka user
     - name: Create Kafka user
       ansible.builtin.user:
         name: kafka
         shell: /bin/bash
         password: "!"
-     
-    - name: create kafka folders
-      file:
-        path: '{{item}}'
+
+    - name: Create Kafka ansible tmp folder
+      ansible.builtin.file:
+        path: /home/kafka/.ansible/tmp
         state: directory
         owner: kafka
         group: kafka
-        recurse: yes
-        mode: 0755
-      loop: [/var/kafka, /var/logs/kafka]
+        mode: 0700
 
   #################################################################
   # Download and install kafka
+    - name: Install Java JDK
+      apt:
+        pkg: default-jdk
+        state: present
+
+    - name: Install ACL 
+      apt:
+        pkg: acl
+        state: present
+
     - name: Download Kafka
       get_url:
         url: "{{kurl}}"
@@ -48,17 +56,18 @@
         group: kafka
         recurse: true
 
-    - name: Install Java JDK
-      apt:
-        pkg: default-jdk
-        state: present
+    - name: create kafka data and meta folders
+      file:
+        path: '{{item}}'
+        state: directory
+        owner: kafka
+        group: kafka
+        recurse: yes
+        mode: 0755
+      loop: [/opt/kafka/data, /opt/kafka/meta]
 
-    - name: Format Kafka storage
-      ansible.builtin.command: "/opt/kafka/bin/kafka-storage.sh format -t {{ kafka_cluster_id }} -c /opt/kafka/config/server.properties"
-      args:
-        creates: /var/kafka/meta.properties
-      become_user: kafka
-
+  #################################################################
+  # Setup the configuration files
     - name: Create Kafka config file
       ansible.builtin.template:
         src: templates/kafka.server.properties.j2
@@ -69,7 +78,7 @@
 
     - name: Create Kafka admin properties for ACL script
       ansible.builtin.template:
-        src: templates/admin.properties.j2
+        src: templates/kafka.admin.properties.j2
         dest: /opt/kafka/config/admin.properties
         owner: kafka
         group: kafka
@@ -84,6 +93,19 @@
         mode: "0644"
 
   #################################################################
+  # Prepare storage 
+    - name: Run storage and ACL commands as kafka user
+      block:
+        - name: Format Kafka storage
+          ansible.builtin.command: "/opt/kafka/bin/kafka-storage.sh format -t {{ kafka_cluster_id }} -c /opt/kafka/config/server.properties"
+          args:
+            creates: /var/kafka/meta.properties
+            chdir: /opt/kafka
+
+      # Apply these directives to the entire block of tasks
+      become_user: kafka
+
+  #################################################################
   # Create the kafka service
     - name: Create Kafka systemd service file
       ansible.builtin.template:
@@ -92,44 +114,9 @@
         owner: root
         group: root
         mode: '0644'
-      notify: Restart Kafka
     
     - name: Enable the Kafka service
       systemd:
         name: kafka
         enabled: yes
         state: started
-
-  #################################################################
-  # Configure Kafka ACLs
-    - name: Set ACL for read-write user
-      ansible.builtin.command: >
-        /opt/kafka/bin/kafka-acls.sh
-        --bootstrap-server localhost:9092
-        --command-config /opt/kafka/config/admin.properties
-        --add
-        --allow-principal User:{{ kafka_rw_user }}
-        --operation Read --operation Write --operation Create
-        --topic '*'
-        --group '*'
-      run_once: true
-      become_user: kafka
-
-    - name: Set ACL for read-only user
-      ansible.builtin.command: >
-        /opt/kafka/bin/kafka-acls.sh
-        --bootstrap-server localhost:9092
-        --command-config /opt/kafka/config/admin.properties
-        --add
-        --allow-principal User:{{ kafka_ro_user }}
-        --operation Read
-        --topic '*'
-        --group '*'
-      run_once: true
-      become_user: kafka
-
-  handlers:
-    - name: Restart Kafka
-      ansible.builtin.service:
-        name: kafka
-        state: restarted

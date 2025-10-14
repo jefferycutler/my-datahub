@@ -1,0 +1,12 @@
+# This file contains the client properties for the Kafka AdminClient,
+# which is used by scripts like kafka-acls.sh to connect to the cluster.
+# It needs to authenticate as the superuser to have permission to modify ACLs.
+
+# Connection and security protocol
+security.protocol=SASL_PLAINTEXT
+sasl.mechanism=SCRAM-SHA-512
+
+# JAAS configuration for the admin user defined in secrets.yaml
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="{{ kafka_admin_user }}" \
+  password="{{ kafka_admin_pw }}";
