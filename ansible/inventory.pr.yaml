@@ -1,6 +1,12 @@
 # Ansible inventory for the my-datahub project.
 all:
   children:
+    # Kubernetes cluster nodes (control plane and workers).
+    k8s:
+      children:
+        k8ctl:
+        k8work:
+
     # Kubernetes control plane nodes for the K3s cluster.
     k8ctl:
       vars:
