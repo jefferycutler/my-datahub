@@ -80,3 +80,10 @@ all:
         datahub:
           ansible_host: 192.168.30.10
           architecture: x86_64
+
+    # Container registry management
+    registry:
+      hosts:
+        harbor:
+          ansible_host: 192.168.30.12
+          architecture: x86_64
