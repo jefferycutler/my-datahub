@@ -15,6 +15,11 @@
     harbor_ip: "192.168.30.12"
 
   tasks:
+    - name: Ensure K3s config directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'  
     - name: Create K3s registries.yaml
       ansible.builtin.copy:
         dest: /etc/rancher/k3s/registries.yaml
