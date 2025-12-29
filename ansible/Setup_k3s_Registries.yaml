@@ -1,0 +1,49 @@
+---
+#################################################################################
+# Setup_K3s_registries.yaml
+#
+# Configures K3s to use the local Harbor registry (HTTP) on all nodes.
+# It creates the registries.yaml file and restarts the appropriate K3s services.
+#################################################################################
+- name: Configure K3s Registries
+  hosts: k8ctl:k8work
+  become: yes
+  vars_files:
+    - secrets.yaml  # things we don't want in github
+
+  vars:
+    harbor_ip: "192.168.30.12"
+
+  tasks:
+    - name: Create K3s registries.yaml
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: '0600'
+        content: |
+          mirrors:
+            "{{ harbor_ip }}":
+              endpoint:
+                - "http://{{ harbor_ip }}"
+          configs:
+            "{{ harbor_ip }}":
+              auth:
+                username: "{{ harbor_user }}"
+                password: "{{ harbor_password }}"
+
+    #################################################################
+    # Restart Services to apply changes
+    # Control Plane nodes run 'k3s' service
+    # Worker nodes run 'k3s-agent' service
+    #################################################################
+
+    - name: Restart K3s Service (Control Plane)
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+      when: "'k8ctl' in group_names"
+
+    - name: Restart K3s Agent Service (Workers)
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+      when: "'k8work' in group_names"

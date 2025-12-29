@@ -1,0 +1,18 @@
+steps:
+  # 1. Initialize Terraform (Download providers, configure backend)
+  - name: 'hashicorp/terraform:light'
+    dir: 'gcp/terraform'
+    args: ['init']
+
+  # 2. Plan (Check what will change)
+  - name: 'hashicorp/terraform:light'
+    dir: 'gcp/terraform'
+    args: ['plan', '-out=tfplan']
+
+  # 3. Apply (Execute changes) - Only runs on main branch usually
+  - name: 'hashicorp/terraform:light'
+    dir: 'gcp/terraform'
+    args: ['apply', '-auto-approve', 'tfplan']
+
+options:
+  logging: CLOUD_LOGGING_ONLY

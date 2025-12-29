@@ -1,5 +1,10 @@
 # Ansible inventory for the my-datahub project.
 all:
+  vars:
+    # Map the generic playbook variables to the PR secrets
+    harbor_user: "{{ harbor_pr_user }}"
+    harbor_password: "{{ harbor_pr_password }}"
+
   children:
     # Kubernetes cluster nodes (control plane and workers).
     k8s:

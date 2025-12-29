@@ -1,25 +1,28 @@
 # Ansible inventory for the my-datahub project.
 all:
+  vars:
+    # Map the generic playbook variables to the PR secrets
+    harbor_user: "{{ harbor_np_user }}"
+    harbor_password: "{{ harbor_np_password }}"
+
   children:
     # Kubernetes control plane nodes for the K3s cluster.
     k8ctl:
       vars:
         architecture: x86_64
       hosts:
-        tk801:
-          ansible_host: 192.168.20.31
+        tk3s01:
+          ansible_host: 192.168.20.201
 
     # Kubernetes worker nodes.
     k8work:
       vars:
         architecture: x86_64
       hosts:
-        tk802:
-          ansible_host: 192.168.20.32
-        tk803:
-          ansible_host: 192.168.20.33
-        tk804:
-          ansible_host: 192.168.20.34
+        tk3s02:
+          ansible_host: 192.168.20.202
+        tk3s03:
+          ansible_host: 192.168.20.203
 
     # Kafka cluster nodes.
     kafka:
@@ -49,4 +52,11 @@ all:
       hosts:
         datahub:
           ansible_host: 192.168.20.10
+          architecture: x86_64
+
+    # Container registry management
+    registry:
+      hosts:
+        harbor:
+          ansible_host: 192.168.30.12
           architecture: x86_64
