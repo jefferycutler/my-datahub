@@ -28,9 +28,34 @@ backend k3s-api-backend
     balance roundrobin
     option tcp-check
     # The inventory must have a 'k3sctl' group defined with the control plane nodes.
-    {% for host in groups['k3sctl'] %}
+    {% for host in groups['k8ctl'] %}
     server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:{{ k3s_api_port }} check
     {% endfor %}
+
+frontend k3s-http-ingress
+    bind {{ k3s_shared_ip }}:80
+    mode tcp
+    default_backend k3s-http-backend
+
+backend k3s-http-backend
+    mode tcp
+    balance roundrobin
+    {% for host in groups['k8work'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:30811 check
+    {% endfor %}
+
+frontend k3s-https-ingress
+    bind {{ k3s_shared_ip }}:443
+    mode tcp
+    default_backend k3s-https-backend
+
+backend k3s-https-backend
+    mode tcp
+    balance roundrobin
+    {% for host in groups['k8work'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:30872 check
+    {% endfor %}
+
 
 # Optional: Add a stats page for monitoring HAProxy
 listen stats

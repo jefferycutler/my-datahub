@@ -1,0 +1,19 @@
+# Values for kafka-ui helm chart
+# repo: https://provectus.github.io/kafka-ui-charts
+
+yamlApplicationConfig:
+  kafka:
+    clusters:
+      - name: production-cluster
+        bootstrapServers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
+        # zookeeper: zookeeper:2181
+    # properties:
+    #   security.protocol: PLAINTEXT
+
+ingress:
+  enabled: false
+  host: kafkaui.k8spr.area51
+  ingressClassName: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"

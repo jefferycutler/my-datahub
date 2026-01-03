@@ -58,3 +58,11 @@
         group: "root"
         mode: '0600'
 
+
+    - name: Allow 'sudo' group to have passwordless sudo
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/sudo-nopasswd
+        line: '%sudo   ALL=(ALL:ALL) NOPASSWD: ALL'
+        create: yes
+        mode: '0440'
+        validate: 'visudo -cf %s'
