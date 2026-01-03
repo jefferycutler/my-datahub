@@ -3,6 +3,7 @@
 
 I work in data engineering and data analytics.  This business is always in a state of change.  As we move from databases to datalake technologies like Hadoop to newer technologies like Kafka and Kuberneties I need to keep up.  My home lab is centered on this Github repo.
 
+![High Level Architecture](./docs/images/Datahub_hl_arch.jpg)
 ## Folders in this project
 
 **ansible**
