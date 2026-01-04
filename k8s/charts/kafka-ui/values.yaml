@@ -4,9 +4,11 @@
 yamlApplicationConfig:
   kafka:
     clusters:
-      - name: production-cluster
+      - name: pr-cluster
         bootstrapServers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
         # zookeeper: zookeeper:2181
+      - name: np-cluster
+        bootstrapServers: 192.168.20.21:9092,192.168.20.22:9092,192.168.20.23:9092
     # properties:
     #   security.protocol: PLAINTEXT
 
