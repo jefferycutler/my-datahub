@@ -92,3 +92,15 @@ all:
         harbor:
           ansible_host: 192.168.30.12
           architecture: x86_64
+
+    # Environmental sensors
+    envsense:
+      hosts:
+        z01:
+          ansible_host: 192.168.40.11
+          architecture: aarch64
+          sensor_name: office
+        z02:
+          ansible_host: 192.168.40.12
+          architecture: aarch64
+          sensor_name: backyard
