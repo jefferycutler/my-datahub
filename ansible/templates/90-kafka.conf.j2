@@ -29,6 +29,6 @@ template(name="json-template" type="list") {
 
 # Action to send all messages to Kafka
 action(type="omkafka"
-       topic="rsyslog"
+       topic="syslog-sorter"
        broker=["{{ kafka_brokers_string }}"]
        template="json-template")

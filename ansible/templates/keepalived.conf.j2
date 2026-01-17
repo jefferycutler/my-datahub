@@ -16,16 +16,31 @@ vrrp_script chk_haproxy {
     rise 2  # require 2 successes to recover
 }
 
+# NEW: Simple check for Rsyslog (Syslog Ingest)
+# "pidof" is a standard linux tool to check if a process is running
+vrrp_script chk_rsyslog {
+    script "/usr/bin/pidof rsyslogd"
+    interval 2
+    weight 2
+    fall 2
+    rise 2
+}
+
+# --- VIP 1: Kubernetes API (.100) ---
+# Primary Owner: lb01 (Index 0)
 vrrp_instance VI_1 {
+
     # The first host in the inventory is the default MASTER
     state {% if groups['lb'][0] == inventory_hostname %}MASTER{% else %}BACKUP{% endif %}
-    
-    interface {{ keepalived_interface }}
-    virtual_router_id 51 # Must be the same for all nodes in the HA group
-    priority {{ 150 - (groups['lb'].index(inventory_hostname)) }} # Higher priority for earlier hosts in inventory
 
-    # Do not preempt for backup nodes. This prevents the original master from
-    # reclaiming the VIP immediately upon returning online, avoiding "flapping".
+    # 2. Interface (Must be on its own line!)  Jinja needs it
+    interface {{ keepalived_interface }}
+
+    virtual_router_id 51 # Must be the same for all nodes in the HA group
+
+    # lb01=150, lb02=149, lb03=148
+    priority {{ 150 - groups['lb'].index(inventory_hostname) }}
+    
     {% if groups['lb'][0] != inventory_hostname %}
     nopreempt
     {% endif %}
@@ -40,5 +55,41 @@ vrrp_instance VI_1 {
     }
     track_script {
         chk_haproxy
+    }
+}
+
+# --- VIP 2: Syslog Ingestion (.101) ---
+# Primary Owner: lb02 (Index 1) - Spreads the load!
+vrrp_instance VI_2 {
+
+    # 1. State logic (Ensure there is a newline AFTER the endif)
+    state {% if groups['lb'][1] == inventory_hostname %}MASTER{% else %}BACKUP{% endif %}
+
+    # 2. Interface (Must be on its own line!)  Jinja needs it
+    interface {{ keepalived_interface }}
+
+    virtual_router_id 52
+    
+    # Priority Logic:
+    # lb02 (Primary)   = 150
+    # lb01 (Secondary) = 100
+    # lb03 (Tertiary)  = 50
+    priority {% if groups['lb'][1] == inventory_hostname %}150{% elif groups['lb'][0] == inventory_hostname %}100{% else %}50{% endif %}
+
+    {% if groups['lb'][1] != inventory_hostname %}
+    nopreempt
+    {% endif %}
+
+    advert_int 1
+    authentication {
+        auth_type PASS
+        # Use a slightly different password for the second VRRP instance
+        auth_pass {{ keepalived_vrrp_password }}2
+    }
+    virtual_ipaddress {
+        {{ syslog_shared_ip | default('192.168.30.101') }}/32
+    }
+    track_script {
+        chk_rsyslog
     }
 }

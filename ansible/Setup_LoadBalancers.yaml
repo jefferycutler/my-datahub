@@ -11,7 +11,8 @@
   vars:
     k3s_shared_ip: "192.168.30.100"
     k3s_api_port: 6443
-    keepalived_interface: "{{ ansible_default_ipv4.interface }}"
+    keepalived_interface: "nm-bond"
+    syslog_shared_ip: "192.168.30.101"
 
   vars_files:
     - "secrets.yaml"
