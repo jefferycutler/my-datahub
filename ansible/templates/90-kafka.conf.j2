@@ -51,4 +51,6 @@ template(name="json-template" type="list") {
 action(type="omkafka"
        topic="syslog-sorter"
        broker=["{{ kafka_brokers_string }}"]
-       template="json-template")
+       template="json-template"
+       partitions.auto="on"
+)
