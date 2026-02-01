@@ -19,7 +19,7 @@ vrrp_script chk_haproxy {
 # NEW: Simple check for Rsyslog (Syslog Ingest)
 # "pidof" is a standard linux tool to check if a process is running
 vrrp_script chk_rsyslog {
-    script "/usr/bin/pidof rsyslogd"
+    script "/usr/bin/systemctl is-active rsyslog"
     interval 2
     weight 2
     fall 2
