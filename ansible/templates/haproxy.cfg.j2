@@ -56,6 +56,19 @@ backend k3s-https-backend
     server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:30872 check
     {% endfor %}
 
+# Ingest service on port 25000 for envsensor data
+frontend envsense-ingest
+    bind {{ k3s_shared_ip }}:25000
+    mode tcp
+    option tcplog
+    default_backend envsense-ingest-backend
+
+backend envsense-ingest-backend
+    mode tcp
+    balance roundrobin
+    {% for host in groups['k8work'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:30025 check
+    {% endfor %}
 
 # Optional: Add a stats page for monitoring HAProxy
 listen stats
@@ -65,3 +78,4 @@ listen stats
     stats uri /stats
     stats refresh 10s
     stats admin if LOCALHOST
+

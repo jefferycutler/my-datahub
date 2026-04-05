@@ -6,11 +6,12 @@ metadata:
   labels:
     app: envsense-receiver
 spec:
-  type: LoadBalancer          # Exposes port externally so edge devices can reach it
+  type: NodePort
   selector:
     app: envsense-receiver
   ports:
     - name: sensor-ingest
       protocol: TCP
-      port: 25000
-      targetPort: 25000
+      port: 25000        # ClusterIP port (internal)
+      targetPort: 25000  # Container port
+      nodePort: 30025    # Fixed NodePort — must match HAProxy backend
