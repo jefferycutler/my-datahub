@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envsense-bq-writer
+  namespace: fluentbit-etl
+  labels:
+    app: envsense-bq-writer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envsense-bq-writer
+  template:
+    metadata:
+      labels:
+        app: envsense-bq-writer
+    spec:
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.3
+          args:
+            - --config=/fluent-bit/etc/fluent-bit.yaml
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          volumeMounts:
+            - name: config
+              mountPath: /fluent-bit/etc/
+            - name: gcp-credentials
+              mountPath: /gcp
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: envsense-bq-config
+        - name: gcp-credentials
+          secret:
+            secretName: gcp-bq-credentials

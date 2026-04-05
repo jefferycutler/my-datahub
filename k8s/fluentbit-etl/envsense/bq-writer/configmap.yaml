@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envsense-bq-config
+  namespace: fluentbit-etl
+data:
+  fluent-bit.yaml: |
+    service:
+      flush: 1
+      retry_limit: no_limit
+
+    pipeline:
+      inputs:
+        - name: kafka
+          brokers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
+          topics: envsensor-pr
+          group_id: bqwriter-envsensor-pr
+          format: json
+          rdkafka.auto.offset.reset: earliest
+
+      filters:
+        # Strip Kafka metadata — payload fields are already correctly shaped
+        - name: record_modifier
+          match: "*"
+          remove_key:
+            - topic
+            - partition
+            - offset
+            - key
+            - "@timestamp"
+            - error
+
+      outputs:
+        - name: bigquery
+          match: "*"
+          project_id: cutlernet-datahub
+          dataset_id: publicna2
+          table_id: envsensor
+          google_service_credentials: /gcp/credentials.json

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "sensor",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Sensor identifier, e.g. office, backyard"
+  },
+  {
+    "name": "sensor_timestamp",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "Timestamp reported by the sensor"
+  },
+  {
+    "name": "measurements",
+    "type": "JSON",
+    "mode": "NULLABLE",
+    "description": "Flexible bag of sensor readings, e.g. {temperature, humidity, co2}"
+  }
+]
