@@ -6,8 +6,9 @@ metadata:
 data:
   fluent-bit.yaml: |
     service:
-      flush: 1
+      flush: 5
       retry_limit: no_limit
+      log_level: info
 
     pipeline:
       inputs:
@@ -17,9 +18,16 @@ data:
           group_id: bqwriter-envsensor-pr
           format: json
           rdkafka.auto.offset.reset: earliest
+          poll_ms: 1000
 
       filters:
-        # Strip Kafka metadata — payload fields are already correctly shaped
+        # Step 1: Lift sensor fields out of the Kafka payload envelope
+        - name: nest
+          match: "*"
+          operation: lift
+          nested_under: payload
+
+        # Step 2: Strip Kafka metadata and leftover fields
         - name: record_modifier
           match: "*"
           remove_key:
@@ -28,7 +36,30 @@ data:
             - offset
             - key
             - "@timestamp"
+            - payload
             - error
+
+        # Step 3: Serialize measurements object to JSON string
+        # BigQuery JSON column type requires the value as a serialized string
+        - name: lua
+          match: "*"
+          call: stringify_measurements
+          code: |
+            function stringify_measurements(tag, timestamp, record)
+              local m = record["measurements"]
+              if m ~= nil and type(m) == "table" then
+                local parts = {}
+                for k, v in pairs(m) do
+                  if type(v) == "number" then
+                    table.insert(parts, string.format('"%s":%s', k, tostring(v)))
+                  else
+                    table.insert(parts, string.format('"%s":"%s"', k, tostring(v)))
+                  end
+                end
+                record["measurements"] = "{" .. table.concat(parts, ",") .. "}"
+              end
+              return 1, timestamp, record
+            end
 
       outputs:
         - name: bigquery
@@ -37,3 +68,4 @@ data:
           dataset_id: publicna2
           table_id: envsensor
           google_service_credentials: /gcp/credentials.json
+          workers: 1

@@ -15,9 +15,11 @@ spec:
       labels:
         app: envsense-bq-writer
     spec:
+      nodeSelector:
+        hardware: pi4
       containers:
         - name: fluent-bit
-          image: fluent/fluent-bit:3.3
+          image: fluent/fluent-bit:4.2.3
           args:
             - --config=/fluent-bit/etc/fluent-bit.yaml
           resources:
