@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: syslog-bq-config
+  namespace: fluentbit-etl
+data:
+  fluent-bit.yaml: |
+    service:
+      flush: 5
+      retry_limit: no_limit
+      log_level: info
+
+    pipeline:
+      inputs:
+        - name: kafka
+          brokers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
+          topics: syslog-ingest-pr
+          group_id: bqwriter-syslog-pr
+          format: json
+          rdkafka.auto.offset.reset: earliest
+          poll_ms: 1000
+
+      filters:
+        # Step 1: Lift syslog fields out of the Kafka payload envelope
+        - name: nest
+          match: "*"
+          operation: lift
+          nested_under: payload
+
+        # Step 2: Strip Kafka metadata and leftover envelope fields
+        - name: record_modifier
+          match: "*"
+          remove_key:
+            - topic
+            - partition
+            - offset
+            - key
+            - "@timestamp"
+            - payload
+            - error
+
+        # Step 3: Normalize timestamps to UTC, coerce numeric fields,
+        # and trim leading whitespace from msg
+        - name: lua
+          match: "*"
+          call: normalize
+          code: |
+            function normalize(tag, timestamp, record)
+              -- Normalize RFC3339 timestamp with offset to UTC for BigQuery
+              local function to_utc(ts)
+                if not ts then return nil end
+                local y,mo,d,h,mi,s,frac,sign,oh,om = ts:match(
+                  "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)([%.%d]*)([%+%-])(%d+):(%d+)"
+                )
+                if not y then return nil end
+                local offset = tonumber(oh)*3600 + tonumber(om)*60
+                if sign == "+" then offset = -offset end
+                local epoch = os.time({year=y,month=mo,day=d,hour=h,min=mi,sec=s,isdst=false}) + offset
+                local frac_str = (#frac > 0) and frac or ".000000"
+                return os.date("!%Y-%m-%dT%H:%M:%S", epoch) .. frac_str .. "Z"
+              end
+
+              record["timegenerated"] = to_utc(record["timegenerated"]) or record["timegenerated"]
+              record["timereported"]  = to_utc(record["timereported"])  or record["timereported"]
+
+              -- Coerce numeric string fields to integers for BigQuery INTEGER columns
+              record["syslogseverity"] = tonumber(record["syslogseverity"])
+              record["pri"]            = tonumber(record["pri"])
+
+              -- Trim leading whitespace from msg
+              if record["msg"] then
+                record["msg"] = record["msg"]:match("^%s*(.-)%s*$")
+              end
+
+              return 1, timestamp, record
+            end
+
+      outputs:
+        - name: bigquery
+          match: "*"
+          project_id: cutlernet-datahub
+          dataset_id: privatena2
+          table_id: syslog_events
+          google_service_credentials: /gcp/credentials.json
+          workers: 1
