@@ -1,0 +1,10 @@
+# Ansible-managed: audisp syslog plugin
+# Routes auditd events into rsyslog authpriv facility
+# which is picked up by the existing 50-forward.conf filter
+# and forwarded to the central syslog relay
+
+active = yes
+direction = out
+path = builtin_syslog
+type = builtin
+args = LOG_INFO LOG_AUTHPRIV
