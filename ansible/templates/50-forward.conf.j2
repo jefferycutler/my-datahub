@@ -1,0 +1,26 @@
+# Ansible-managed: Forward security-relevant logs to central syslog relay
+# Targets the HAProxy VIP {{ syslog_shared_ip }}:514 (lb01/lb02/lb03)
+#
+# Filter mirrors the Kafka intake criteria on the load balancers:
+#   - Warning severity or higher
+#   - auth and authpriv facilities (covers sshd, sudo, auditd)
+#   - area51gate firewall host (all severities)
+#
+# Numbering at 50- ensures this runs before any drop/stop rules
+# that might exist in higher-numbered local config files
+
+if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
+    action(type="omfwd"
+           name="forward_to_relay"
+           target="{{ syslog_shared_ip }}"
+           port="514"
+           protocol="tcp"
+           action.resumeRetryCount="-1"
+           queue.type="LinkedList"
+           queue.filename="fwd_relay"
+           queue.maxdiskspace="100m"
+           queue.saveonshutdown="on"
+           queue.size="10000"
+           template="RSYSLOG_SyslogProtocol23Format"
+    )
+}

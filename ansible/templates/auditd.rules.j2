@@ -1,0 +1,93 @@
+## Ansible-managed: auditd security rules
+## Focused on: initial access, privilege escalation, persistence, lateral movement
+
+# ---------------------------------------------------------------
+# Housekeeping
+# ---------------------------------------------------------------
+# Remove any existing rules
+-D
+
+# Buffer size - increase if you see "audit: backlog limit exceeded"
+-b 8192
+
+# Failure mode: 1=log the failure, 2=kernel panic (use 1 for non-critical hosts)
+-f 1
+
+# ---------------------------------------------------------------
+# INITIAL ACCESS - SSH key and host trust manipulation
+# ---------------------------------------------------------------
+# Watching for changes to authorized_keys across all home dirs
+-a always,exit -F arch=b64 -F path=/root/.ssh -F perm=wa -k ssh_keys
+-a always,exit -F arch=b64 -F dir=/home -F path=.ssh -F perm=wa -k ssh_keys
+# known_hosts changes can indicate MITM setup or lateral movement prep
+-w /etc/ssh/ssh_known_hosts -p wa -k ssh_config
+-w /etc/ssh/sshd_config -p wa -k ssh_config
+
+# ---------------------------------------------------------------
+# PRIVILEGE ESCALATION
+# ---------------------------------------------------------------
+# Execution of privilege escalation tools
+-a always,exit -F arch=b64 -F path=/usr/bin/sudo -F perm=x -F auid>=1000 -F auid!=4294967295 -k priv_esc
+-a always,exit -F arch=b64 -F path=/usr/bin/su -F perm=x -F auid>=1000 -F auid!=4294967295 -k priv_esc
+-a always,exit -F arch=b64 -F path=/usr/bin/newgrp -F perm=x -k priv_esc
+-a always,exit -F arch=b64 -F path=/usr/bin/pkexec -F perm=x -k priv_esc
+
+# Sudoers changes - adding/modifying sudo rules is a classic persistence move
+-w /etc/sudoers -p wa -k sudoers_change
+-w /etc/sudoers.d/ -p wa -k sudoers_change
+
+# ---------------------------------------------------------------
+# PERSISTENCE - User and group manipulation
+# ---------------------------------------------------------------
+# Core identity files
+-w /etc/passwd -p wa -k identity_change
+-w /etc/shadow -p wa -k identity_change
+-w /etc/group -p wa -k identity_change
+-w /etc/gshadow -p wa -k identity_change
+
+# User management commands - an attacker creating a backdoor account
+-a always,exit -F arch=b64 -F path=/usr/sbin/useradd -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/userdel -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/usermod -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/groupadd -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/groupdel -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/groupmod -F perm=x -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/bin/passwd -F perm=x -k passwd_change
+
+# Cron - a very common persistence mechanism
+-w /etc/crontab -p wa -k cron_change
+-w /etc/cron.d/ -p wa -k cron_change
+-w /etc/cron.daily/ -p wa -k cron_change
+-w /etc/cron.weekly/ -p wa -k cron_change
+-w /var/spool/cron/ -p wa -k cron_change
+
+# Systemd service installation - another common persistence path
+-w /etc/systemd/system/ -p wa -k service_change
+-w /usr/lib/systemd/system/ -p wa -k service_change
+-w /lib/systemd/system/ -p wa -k service_change
+
+# ---------------------------------------------------------------
+# PERSISTENCE - Network and firewall changes
+# ---------------------------------------------------------------
+-w /etc/hosts -p wa -k network_change
+-w /etc/network/ -p wa -k network_change
+-w /etc/NetworkManager/ -p wa -k network_change
+-a always,exit -F arch=b64 -F path=/sbin/iptables -F perm=x -k firewall_change
+-a always,exit -F arch=b64 -F path=/sbin/ip6tables -F perm=x -k firewall_change
+-a always,exit -F arch=b64 -F path=/usr/sbin/nft -F perm=x -k firewall_change
+
+# ---------------------------------------------------------------
+# LATERAL MOVEMENT - Kernel and module tampering
+# ---------------------------------------------------------------
+# Kernel module loading can indicate rootkit installation
+-a always,exit -F arch=b64 -S init_module,finit_module -k module_load
+-a always,exit -F arch=b64 -S delete_module -k module_unload
+-w /sbin/insmod -p x -k module_load
+-w /sbin/modprobe -p x -k module_load
+-w /sbin/rmmod -p x -k module_unload
+
+# ---------------------------------------------------------------
+# Make rules immutable - requires reboot to change
+# Comment this out during initial tuning, enable when stable
+# ---------------------------------------------------------------
+#-e 2

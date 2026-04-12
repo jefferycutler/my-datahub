@@ -1,0 +1,52 @@
+---
+#################################################################################
+# Setup_SyslogForward.yaml
+#
+# Ansible playbook to deploy rsyslog forwarding configuration on all nodes
+# except the load balancers themselves (which are the destination).
+# Forwards security-relevant logs to the HAProxy syslog VIP on port 514.
+#################################################################################
+- name: Deploy rsyslog forwarding configuration
+  hosts: all:!lb
+  become: yes
+  gather_facts: yes
+
+  vars:
+    syslog_shared_ip: "192.168.30.101"
+
+  tasks:
+    - name: Ensure rsyslog is installed
+      ansible.builtin.apt:
+        name: rsyslog
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Ensure rsyslog spool directory exists for queue persistence
+      ansible.builtin.file:
+        path: /var/spool/rsyslog
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Deploy rsyslog forwarding config
+      ansible.builtin.template:
+        src: templates/50-forward.conf.j2
+        dest: /etc/rsyslog.d/50-forward.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart rsyslog
+
+    - name: Ensure rsyslog is started and enabled
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: restart rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted

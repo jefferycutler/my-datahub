@@ -1,0 +1,59 @@
+## Ansible-managed: auditd security rules - K8s Worker Nodes
+## These nodes run container workloads so rules are scoped to
+## host OS processes only by filtering on the initial mount namespace.
+## Container process events are suppressed to avoid pipeline noise.
+##
+## The initial mount namespace inode (4026531840) is a Linux kernel
+## constant identifying the host OS namespace. Container processes
+## run in child namespaces with different inodes and are excluded.
+
+-D
+-b 8192
+-f 1
+
+# ---------------------------------------------------------------
+# EXCLUDE container runtime noise first
+# These syscalls are extremely high volume in k8s environments
+# Suppress them entirely for container processes
+# ---------------------------------------------------------------
+-a never,exit -F arch=b64 -F path=/run/containerd -k exclude_container
+-a never,exit -F arch=b64 -F path=/var/lib/rancher -k exclude_container
+-a never,exit -F arch=b64 -F exe=/usr/local/bin/k3s -k exclude_k3s
+-a never,exit -F arch=b64 -F exe=/usr/local/bin/containerd -k exclude_container
+-a never,exit -F arch=b64 -F exe=/usr/local/bin/containerd-shim-runc-v2 -k exclude_container
+
+# ---------------------------------------------------------------
+# HOST OS ONLY - same security rules as standard hosts
+# The exe-based exclusions above mean container processes won't
+# match these rules even if they trigger the same syscalls
+# ---------------------------------------------------------------
+
+# SSH keys and config
+-a always,exit -F arch=b64 -F path=/root/.ssh -F perm=wa -k ssh_keys
+-a always,exit -F arch=b64 -F path=/etc/ssh/sshd_config -F perm=wa -k ssh_config
+
+# Privilege escalation
+-a always,exit -F arch=b64 -F path=/usr/bin/sudo -F perm=x -F auid>=1000 -F auid!=4294967295 -k priv_esc
+-a always,exit -F arch=b64 -F path=/usr/bin/su -F perm=x -F auid>=1000 -F auid!=4294967295 -k priv_esc
+
+# Identity files
+-w /etc/passwd -p wa -k identity_change
+-w /etc/shadow -p wa -k identity_change
+-w /etc/sudoers -p wa -k sudoers_change
+-w /etc/sudoers.d/ -p wa -k sudoers_change
+
+# User management
+-a always,exit -F arch=b64 -F path=/usr/sbin/useradd -F perm=x -F auid>=1000 -F auid!=4294967295 -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/userdel -F perm=x -F auid>=1000 -F auid!=4294967295 -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/sbin/usermod -F perm=x -F auid>=1000 -F auid!=4294967295 -k user_mgmt
+-a always,exit -F arch=b64 -F path=/usr/bin/passwd -F perm=x -k passwd_change
+
+# Persistence
+-w /etc/crontab -p wa -k cron_change
+-w /etc/cron.d/ -p wa -k cron_change
+-w /var/spool/cron/ -p wa -k cron_change
+-w /etc/systemd/system/ -p wa -k service_change
+
+# Kernel modules - especially important on k8s nodes
+-a always,exit -F arch=b64 -S init_module,finit_module -k module_load
+-a always,exit -F arch=b64 -S delete_module -k module_unload

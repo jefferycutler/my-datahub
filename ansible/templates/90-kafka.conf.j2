@@ -22,9 +22,9 @@ template(name="json-template" type="list") {
         constant(value=",")
         property(outname="relayhost" name="$myhostname" format="jsonf")
         constant(value=",")
-        property(outname="fromhost-ip" name="fromhost-ip" format="jsonf")
+        property(outname="fromhost_ip" name="fromhost-ip" format="jsonf")
         constant(value=",")
-        property(outname="fromhost-name" name="hostname" format="jsonf")
+        property(outname="fromhost_name" name="hostname" format="jsonf")
         constant(value=",")
         property(outname="syslogseverity" name="syslogseverity" format="jsonf")
         constant(value=",")
@@ -36,21 +36,25 @@ template(name="json-template" type="list") {
         constant(value=",")
         property(outname="pri" name="pri" format="jsonf")
         constant(value=",")
-        property(outname="pri-text" name="pri-text" format="jsonf")
+        property(outname="pri_text" name="pri-text" format="jsonf")
         constant(value=",")
-        property(outname="syslogfacility-text" name="syslogfacility-text" format="jsonf")
+        property(outname="syslogfacility_text" name="syslogfacility-text" format="jsonf")
         constant(value=",")
-        property(outname="app-name" name="app-name" format="jsonf")
+        property(outname="app_name" name="app-name" format="jsonf")
         constant(value=",")
         property(outname="msg" name="msg" format="jsonf")
         # closing json bracket
         constant(value="}\n ")
 }
 
-# Action to send all messages to Kafka
-action(type="omkafka"
-       topic="syslog-sorter"
-       broker=["{{ kafka_brokers_string }}"]
-       template="json-template"
-       partitions.auto="on"
-)
+# Action to send filtered messages to Kafka
+# Criteria: warning or higher (severity <= 4), OR sshd program, OR from area51gate
+if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") 
+then {
+    action(type="omkafka"
+           topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
+           broker=["{{ kafka_brokers_string }}"]
+           template="json-template"
+           partitions.auto="on"
+    )
+}
