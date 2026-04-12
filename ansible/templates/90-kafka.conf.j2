@@ -28,7 +28,7 @@ template(name="json-template" type="list") {
         constant(value=",")
         property(outname="syslogseverity" name="syslogseverity" format="jsonf")
         constant(value=",")
-        property(outname="syslogseverity-text" name="syslogseverity-text" format="jsonf")
+        property(outname="syslogseverity_text" name="syslogseverity-text" format="jsonf")
         constant(value=",")
         property(outname="syslogtag" name="syslogtag" format="jsonf")
         constant(value=",")
@@ -49,8 +49,7 @@ template(name="json-template" type="list") {
 
 # Action to send filtered messages to Kafka
 # Criteria: warning or higher (severity <= 4), OR sshd program, OR from area51gate
-if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") 
-then {
+if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
     action(type="omkafka"
            topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
            broker=["{{ kafka_brokers_string }}"]

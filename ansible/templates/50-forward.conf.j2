@@ -18,6 +18,7 @@ if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacilit
            action.resumeRetryCount="-1"
            queue.type="LinkedList"
            queue.filename="fwd_relay"
+           queue.spoolDirectory="/var/spool/rsyslog"
            queue.maxdiskspace="100m"
            queue.saveonshutdown="on"
            queue.size="10000"
