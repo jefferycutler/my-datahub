@@ -1,6 +1,6 @@
 ---
 - name: Install and configure auditd for security monitoring
-  hosts: all
+  hosts: all:!registry
   become: yes
   gather_facts: yes
 
