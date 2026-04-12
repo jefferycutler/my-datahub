@@ -79,13 +79,6 @@ all:
           ansible_host: 192.168.30.11
           architecture: aarch64
 
-    # Releation Databases
-    rdms:
-      hosts:
-        datahub:
-          ansible_host: 192.168.30.10
-          architecture: x86_64
-
     # Container registry management
     registry:
       hosts:

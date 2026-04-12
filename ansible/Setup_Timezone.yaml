@@ -1,0 +1,35 @@
+---
+#################################################################################
+# Setup_Timezone.yaml
+#
+# Ansible playbook to ensure consistent timezone configuration across all
+# managed hosts. All hosts should be set to America/Toronto to ensure
+# consistent log timestamps across the pipeline.
+#################################################################################
+- name: Configure timezone on all managed hosts
+  hosts: all:!registry
+  become: yes
+  gather_facts: yes
+
+  vars:
+    timezone: "America/Toronto"
+
+  tasks:
+    - name: Set timezone
+      community.general.timezone:
+        name: "{{ timezone }}"
+      notify: restart rsyslog
+
+    - name: Ensure systemd-timesyncd is running for NTP sync
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: yes
+      when: ansible_facts['os_family'] == "Debian"
+      ignore_errors: yes
+
+  handlers:
+    - name: restart rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted
