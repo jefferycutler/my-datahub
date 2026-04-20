@@ -64,6 +64,5 @@
 
   handlers:
     - name: restart auditd
-      ansible.builtin.systemd:
-        name: /sbin/auditctl -R /etc/audit/rules.d/90-security.rules
-        state: restarted
+      ansible.builtin.command:
+        cmd: /sbin/auditctl -R /etc/audit/rules.d/90-security.rules
