@@ -45,19 +45,38 @@ all:
     # Kafka cluster nodes.
     kafka:
       vars:
-        architecture: aarch64
       hosts:
         kf01:
           ansible_host: 192.168.30.24
+          architecture: aarch64
           kafka_is_controller: true
         kf02:
           ansible_host: 192.168.30.25
+          architecture: aarch64
           kafka_is_controller: true
         kf03:
           ansible_host: 192.168.30.26
+          architecture: aarch64
           kafka_is_controller: true
         kf04:
+          architecture: aarch64
           ansible_host: 192.168.30.27
+          kafka_is_controller: false
+        kf1:
+          ansible_host: 192.168.30.51
+          architecture: x86_64
+          kafka_is_controller: true
+        kf2:
+          ansible_host: 192.168.30.52
+          architecture: x86_64
+          kafka_is_controller: true
+        kf3:
+          ansible_host: 192.168.30.53
+          architecture: x86_64
+          kafka_is_controller: true
+        kf4:
+          architecture: x86_64
+          ansible_host: 192.168.30.54
           kafka_is_controller: false
 
     # Load balancer nodes.
