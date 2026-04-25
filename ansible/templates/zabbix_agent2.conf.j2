@@ -1,0 +1,24 @@
+# Ansible managed: Zabbix Agent 2 configuration for {{ ansible_hostname }}
+# Server: {{ zabbix_server_ip }}
+
+PidFile=/var/run/zabbix/zabbix_agent2.pid
+
+LogFile=/var/log/zabbix/zabbix_agent2.log
+LogFileSize=0
+
+# Passive checks: accept connections from the Zabbix server
+Server={{ zabbix_server_ip }}
+
+# Active checks: push metrics to the Zabbix server
+ServerActive={{ zabbix_server_ip }}
+
+# Must match the host name registered in Zabbix frontend
+Hostname={{ ansible_hostname }}
+
+Include=/etc/zabbix/zabbix_agent2.d/*.conf
+
+PluginSocket=/run/zabbix/agent.plugin.sock
+
+ControlSocket=/run/zabbix/agent.sock
+
+Include=/etc/zabbix/zabbix_agent2.d/plugins.d/*.conf

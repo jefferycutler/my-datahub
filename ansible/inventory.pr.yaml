@@ -16,6 +16,7 @@ all:
     k8ctl:
       vars:
         architecture: aarch64
+        zagent: true
       hosts:
         k801:
           ansible_host: 192.168.30.31
@@ -28,6 +29,7 @@ all:
     k8work:
       vars:
         architecture: aarch64
+        zagent: true
       hosts:
         k804:
           ansible_host: 192.168.30.34
@@ -45,6 +47,7 @@ all:
     # Kafka cluster nodes.
     kafka:
       vars:
+        zagent: true
       hosts:
         kf01:
           ansible_host: 192.168.30.24
@@ -83,6 +86,7 @@ all:
     lb:
       vars:
         architecture: x86_64
+        zagent: true
       hosts:
         lb01:
           ansible_host: 192.168.30.21
@@ -100,6 +104,8 @@ all:
 
     # Container registry management
     registry:
+      vars:
+        zagent: true
       hosts:
         harbor:
           ansible_host: 192.168.30.12

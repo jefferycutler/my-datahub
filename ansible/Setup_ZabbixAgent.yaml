@@ -1,0 +1,71 @@
+---
+###############################################################################
+# Setup_ZabbixAgent.yaml
+#
+# Installs and configures Zabbix Agent 2 on all hosts where zagent: true.
+# Adds the official Zabbix apt repository, installs the agent, deploys the
+# config, and ensures the service is running.
+#
+# Targets Zabbix server: zbx01 (192.168.30.11)
+###############################################################################
+- name: Install and configure Zabbix Agent 2
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    zabbix_server_ip: "192.168.30.11"
+    # 7.2 has no Debian apt repo; 7.0 LTS agent is compatible with a 7.2 server
+    zabbix_version: "7.0"
+    zabbix_repo_base: "https://repo.zabbix.com/zabbix/{{ zabbix_version }}"
+
+  tasks:
+    - name: "Deploy Zabbix Agent 2"
+      when:
+        - zagent | default(false)
+        - ansible_facts['os_family'] == "Debian"
+      block:
+        - name: "Ensure /etc/apt/keyrings exists"
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: "0755"
+
+        - name: "Download Zabbix GPG key"
+          ansible.builtin.get_url:
+            url: "https://repo.zabbix.com/zabbix-official-repo.key"
+            dest: /etc/apt/keyrings/zabbix.asc
+            mode: "0644"
+
+        - name: "Add Zabbix apt repository"
+          ansible.builtin.copy:
+            content: "deb [signed-by=/etc/apt/keyrings/zabbix.asc] {{ zabbix_repo_base }}/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main\n"
+            dest: /etc/apt/sources.list.d/zabbix.list
+            mode: "0644"
+
+        - name: "Install zabbix-agent2"
+          ansible.builtin.apt:
+            name: zabbix-agent2
+            state: present
+            update_cache: yes
+
+        - name: "Deploy zabbix_agent2.conf"
+          ansible.builtin.template:
+            src: templates/zabbix_agent2.conf.j2
+            dest: /etc/zabbix/zabbix_agent2.conf
+            owner: root
+            group: zabbix
+            mode: "0640"
+          notify: Restart zabbix-agent2
+
+        - name: "Enable and start zabbix-agent2"
+          ansible.builtin.systemd:
+            name: zabbix-agent2
+            state: started
+            enabled: true
+
+  handlers:
+    - name: Restart zabbix-agent2
+      ansible.builtin.systemd:
+        name: zabbix-agent2
+        state: restarted
