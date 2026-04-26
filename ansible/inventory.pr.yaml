@@ -115,3 +115,14 @@ all:
           ansible_host: 192.168.30.12
           architecture: x86_64
 
+    # Database systems
+    dbsys:
+      vars:
+        architecture: x86_64
+        zagent: true
+      hosts:
+        mdb1:
+          ansible_host: 192.168.30.13
+        mdb2:
+          ansible_host: 192.168.30.14
+    

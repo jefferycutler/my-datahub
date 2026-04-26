@@ -1,0 +1,46 @@
+---
+#################################################################################
+# Setup_BasePackaes.yaml
+#
+# Ansible playbook to run when new node is added
+# these are base packages usefull on all Debian based hosts
+#################################################################################
+- name: Install Common Base Packages on Debian Hosts
+  hosts: all
+  become: yes
+  vars:
+    base_packages:
+      # Network & Troubleshooting
+      - curl
+      - wget
+      - net-tools
+      - dnsutils
+      - nmap
+      - iputils-ping
+      - traceroute
+      # System Monitoring & Management
+      - htop
+      - sysstat
+      - iotop
+      - tmux
+      - rsync
+      - tree
+      # Text Processing & Editors
+      - nano
+      - jq
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Ensure base packages are installed
+      apt:
+        name: "{{ base_packages }}"
+        state: present
+
+    - name: Clean up unused packages and dependencies
+      apt:
+        autoremove: yes
+        autoclean: yes
