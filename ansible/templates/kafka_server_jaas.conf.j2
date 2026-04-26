@@ -1,11 +1,10 @@
-// This JAAS file defines the users and credentials that the Kafka broker
-// will use to authenticate clients and other brokers via SASL/SCRAM.
-// It is referenced by the KAFKA_OPTS environment variable in the systemd service.
+// JAAS config for Kafka broker SASL/SCRAM authentication.
+// Specifies only the inter-broker login credential (dhadmin).
+// SCRAM accounts for dhpub and dhconsume live in the metadata log, not here —
+// they were seeded at storage format time via --add-scram.
 
 KafkaServer {
     org.apache.kafka.common.security.scram.ScramLoginModule required
     username="{{ kafka_admin_user }}"
-    password="{{ kafka_admin_pw }}"
-    user_{{ kafka_rw_user }}="{{ kafka_rw_pw }}"
-    user_{{ kafka_ro_user }}="{{ kafka_ro_pw }}";
+    password="{{ kafka_admin_pw }}";
 };

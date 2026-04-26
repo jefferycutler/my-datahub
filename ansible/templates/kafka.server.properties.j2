@@ -17,65 +17,76 @@
 
 ############################# Server Basics #############################
 
-# The id of the node. This must be set to a unique integer for each node.
-# We derive this from the host's index in the 'kafka' inventory group.
-node.id={{ groups['kafka'].index(inventory_hostname) }}
-
-# The cluster ID, must be the same for all nodes.
-# We will generate this in the Ansible playbook.
-cluster.id={{ kafka_cluster_id }}
+# Node IDs are 1-based, derived from the host's position in the kafka inventory group.
+node.id={{ groups['kafka'].index(inventory_hostname) + 1 }}
 
 ############################# KRaft Controller Settings #############################
 
-# A comma-separated list of nodes that will act as controllers.
-# Format: id1@host1:port1,id2@host2:port2,...
-controller.quorum.voters={% for host in groups['kafka'] if hostvars[host].kafka_is_controller | default(false) -%}
-{{ groups['kafka'].index(host) }}@{{ host }}:9093{% if not loop.last %},{% endif %}
-{%- endfor %}
+# Build the quorum voters list using IPs rather than hostnames (hostnames may not resolve on clients).
+{% set voters = [] -%}
+{% for host in groups['kafka'] -%}
+{% if hostvars[host].kafka_is_controller | default(false) -%}
+{% set _ = voters.append((groups['kafka'].index(host) + 1) ~ '@' ~ hostvars[host]['ansible_host'] ~ ':9093') -%}
+{% endif -%}
+{% endfor -%}
+controller.quorum.voters={{ voters | join(',') }}
 
 process.roles={{ 'broker,controller' if kafka_is_controller | default(false) else 'broker' }}
 
-# The name of the listener used by the controller.
 controller.listener.names=CONTROLLER
 
-# folder where meta data is stored
+# Metadata log stays on fast local storage, separate from topic data.
 metadata.log.dir=/opt/kafka/meta
 
 ############################# Socket Server Settings #############################
-# The address the socket server listens on.
+
+# CONTROLLER uses SASL_PLAINTEXT with PLAIN mechanism.
+# PLAIN reads credentials from the JAAS config (not the metadata log), which breaks
+# the deadlock where StandardAuthorizer blocks VOTE messages before metadata is loaded.
+# Brokers authenticate as dhadmin (a super user), so the ACL check is bypassed
+# even before the authorizer finishes its startup sequence.
+{% if kafka_is_controller | default(false) %}
 listeners=SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+{% else %}
+listeners=SASL_PLAINTEXT://0.0.0.0:9092
+{% endif %}
 listener.security.protocol.map=CONTROLLER:SASL_PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+inter.broker.listener.name=SASL_PLAINTEXT
 
-# The address that is advertised to other brokers and clients.
-# Use the inventory_hostname for this, which resolves to the correct IP or FQDN.
-advertised.listeners=SASL_PLAINTEXT://{{ inventory_hostname }}:9092
+# Advertise the actual IP so clients from multiple subnets (20.x, 30.x, 40.x) can reach the broker.
+advertised.listeners=SASL_PLAINTEXT://{{ hostvars[inventory_hostname]['ansible_host'] }}:9092
 
-# Security protocol for inter-broker communication.
-security.inter.broker.protocol=SASL_PLAINTEXT
+############################# SASL Settings #############################
 
-############################# SASL/SCRAM Settings #############################
-
-# Enable SCRAM-SHA-512 for client and inter-broker authentication.
+# Inter-broker replication (port 9092): SCRAM — credentials live in the metadata log.
 sasl.mechanism.inter.broker.protocol=SCRAM-SHA-512
 sasl.enabled.mechanisms=SCRAM-SHA-512
 
-# Define the authorizer and the super user (admin).
-authorizer.class.name=kafka.security.authorizer.AclAuthorizer
+# Controller Raft quorum (port 9093): PLAIN — credentials live in this file, no metadata dependency.
+sasl.mechanism.controller.protocol=PLAIN
+listener.name.controller.sasl.enabled.mechanisms=PLAIN
+listener.name.controller.plain.sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required \
+  username="{{ kafka_admin_user }}" \
+  password="{{ kafka_admin_pw }}" \
+  user_{{ kafka_admin_user }}="{{ kafka_admin_pw }}";
+
+############################# ACL Authorization #############################
+
+# StandardAuthorizer is the KRaft-native ACL engine.
+# super.users is read from config (not metadata), so dhadmin is recognized immediately
+# on startup before the metadata log has been replayed.
+authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
 super.users=User:{{ kafka_admin_user }}
 allow.everyone.if.no.acl.found=false
 
-# The number of threads that the server uses for receiving requests from the network and sending responses to the network
 num.network.threads=3
-
-# The number of threads that the server uses for processing requests, which may include disk I/O
 num.io.threads=8
 
 ############################# Log Basics #############################
 
-# A comma-separated list of directories under which to store log files
-log.dirs=/opt/kafka/data
+# Topic partition data directories — defined per host/group in the inventory via kafka_log_dirs.
+log.dirs={{ kafka_log_dirs | join(',') }}
 
-# The default number of log partitions per topic.
 num.partitions=1
 
 ############################# Internal Topic Settings  #############################

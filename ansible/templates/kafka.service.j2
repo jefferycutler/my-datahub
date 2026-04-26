@@ -1,18 +1,18 @@
 [Unit]
 Description=Kafka Service
 Documentation=https://kafka.apache.org/
-Requires=network.target remote-fs.target
-After=network.target remote-fs.target
-Wants=syslog.target
+Requires=network.target local-fs.target
+After=network.target local-fs.target
 
 [Service]
 Type=simple
+Environment="KAFKA_OPTS=-Djava.security.auth.login.config=/opt/kafka/config/kafka_server_jaas.conf"
 ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
 ExecStop=/opt/kafka/bin/kafka-server-stop.sh
 WorkingDirectory=/opt/kafka
 User=kafka
 Group=kafka
-TimeoutSec=30
+TimeoutSec=90
 Restart=on-failure
 
 [Install]

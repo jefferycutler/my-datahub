@@ -4,12 +4,12 @@
   hosts: kafka
   become: true
   vars:
-    kvers: 4.1.0 # Kafka version
-    svers: 2.13  # Scala version for Kafka
-    kurl: "https://downloads.apache.org/kafka/{{kvers}}/kafka_{{svers}}-{{kvers}}.tgz"
-    kafka_cluster_id: "" # Will be generated
+    kvers: 4.2.0
+    svers: 2.13
+    kurl: "https://downloads.apache.org/kafka/{{ kvers }}/kafka_{{ svers }}-{{ kvers }}.tgz"
   vars_files: [secrets.yaml]
   tasks:
+
   #################################################################
   # Create a Kafka user
     - name: Create Kafka user
@@ -24,51 +24,66 @@
         state: directory
         owner: kafka
         group: kafka
-        mode: 0700
+        mode: "0700"
 
   #################################################################
-  # Download and install kafka
+  # Install dependencies
     - name: Install Java JDK
       apt:
         pkg: default-jdk
         state: present
 
-    - name: Install ACL 
+    - name: Install ACL
       apt:
         pkg: acl
         state: present
 
+  #################################################################
+  # Download and install Kafka
     - name: Download Kafka
       get_url:
-        url: "{{kurl}}"
+        url: "{{ kurl }}"
         dest: /tmp/kafka.tar.gz
-        force: yes
 
-    - name: Extract tar to opt folder
-      shell: |
-        tar -xvf /tmp/kafka.tar.gz -C /tmp/
-        mv /tmp/kafka_{{svers}}-{{kvers}} /opt/kafka
+    - name: Extract Kafka to /opt/kafka
+      ansible.builtin.unarchive:
+        src: /tmp/kafka.tar.gz
+        dest: /opt/
+        remote_src: yes
+        extra_opts:
+          - "--transform"
+          - "s|kafka_{{ svers }}-{{ kvers }}|kafka|"
+        creates: /opt/kafka/bin/kafka-server-start.sh
 
-    - name: Set ownership of opt kafka folder
-      file:
+    - name: Set ownership of /opt/kafka
+      ansible.builtin.file:
         path: /opt/kafka
         owner: kafka
         group: kafka
         recurse: true
 
-    - name: create kafka data and meta folders
-      file:
-        path: '{{item}}'
+  #################################################################
+  # Prepare storage directories
+    - name: Create and set ownership of kafka data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
         state: directory
         owner: kafka
         group: kafka
-        recurse: yes
-        mode: 0755
-      loop: [/opt/kafka/data, /opt/kafka/meta]
+        mode: "0750"
+      loop: "{{ kafka_log_dirs }}"
+
+    - name: Create kafka metadata directory
+      ansible.builtin.file:
+        path: /opt/kafka/meta
+        state: directory
+        owner: kafka
+        group: kafka
+        mode: "0750"
 
   #################################################################
-  # Setup the configuration files
-    - name: Create Kafka config file
+  # Deploy configuration files
+    - name: Create Kafka server.properties
       ansible.builtin.template:
         src: templates/kafka.server.properties.j2
         dest: /opt/kafka/config/server.properties
@@ -76,47 +91,79 @@
         group: kafka
         mode: "0644"
 
-    - name: Create Kafka admin properties for ACL script
+    - name: Create Kafka admin.properties
       ansible.builtin.template:
         src: templates/kafka.admin.properties.j2
         dest: /opt/kafka/config/admin.properties
         owner: kafka
         group: kafka
-        mode: "0644"
-  
-    - name: Create Kafka JAAS config file
+        mode: "0640"
+
+    - name: Create Kafka JAAS config
       ansible.builtin.template:
         src: templates/kafka_server_jaas.conf.j2
         dest: /opt/kafka/config/kafka_server_jaas.conf
         owner: kafka
         group: kafka
-        mode: "0644"
+        mode: "0640"
 
-  #################################################################
-  # Prepare storage 
-    - name: Run storage and ACL commands as kafka user
-      block:
-        - name: Format Kafka storage
-          ansible.builtin.command: "/opt/kafka/bin/kafka-storage.sh format -t {{ kafka_cluster_id }} -c /opt/kafka/config/server.properties"
-          args:
-            creates: /var/kafka/meta.properties
-            chdir: /opt/kafka
-
-      # Apply these directives to the entire block of tasks
-      become_user: kafka
-
-  #################################################################
-  # Create the kafka service
     - name: Create Kafka systemd service file
       ansible.builtin.template:
         src: templates/kafka.service.j2
-        dest: "/etc/systemd/system/kafka.service"
+        dest: /etc/systemd/system/kafka.service
         owner: root
         group: root
-        mode: '0644'
-    
-    - name: Enable the Kafka service
-      systemd:
+        mode: "0644"
+
+  #################################################################
+  # Format storage and bootstrap SCRAM credentials
+  # The creates: guard ensures this only runs on a fresh node.
+    - name: Format Kafka storage and seed SCRAM users
+      ansible.builtin.shell: |
+        /opt/kafka/bin/kafka-storage.sh format \
+          -t {{ kafka_cluster_id }} \
+          -c /opt/kafka/config/server.properties \
+          --add-scram 'SCRAM-SHA-512=[name={{ kafka_admin_user }},password={{ kafka_admin_pw }}]' \
+          --add-scram 'SCRAM-SHA-512=[name={{ kafka_rw_user }},password={{ kafka_rw_pw }}]' \
+          --add-scram 'SCRAM-SHA-512=[name={{ kafka_ro_user }},password={{ kafka_ro_pw }}]'
+      args:
+        creates: /opt/kafka/meta/meta.properties
+        chdir: /opt/kafka
+      become_user: kafka
+
+  #################################################################
+  # Create and start the Kafka service
+    - name: Enable and start the Kafka service
+      ansible.builtin.systemd:
         name: kafka
         enabled: yes
         state: started
+        daemon_reload: yes
+
+    - name: Wait for Kafka broker to be ready
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 9092
+        timeout: 120
+
+  #################################################################
+  # Configure ACLs once the cluster is accepting connections
+    - name: Grant {{ kafka_rw_user }} producer access to all topics
+      ansible.builtin.shell: >
+        /opt/kafka/bin/kafka-acls.sh
+        --bootstrap-server localhost:9092
+        --command-config /opt/kafka/config/admin.properties
+        --add --allow-principal User:{{ kafka_rw_user }}
+        --producer --topic '*' --resource-pattern-type literal
+      run_once: true
+      become_user: kafka
+
+    - name: Grant {{ kafka_ro_user }} consumer access to all topics and groups
+      ansible.builtin.shell: >
+        /opt/kafka/bin/kafka-acls.sh
+        --bootstrap-server localhost:9092
+        --command-config /opt/kafka/config/admin.properties
+        --add --allow-principal User:{{ kafka_ro_user }}
+        --consumer --topic '*' --group '*' --resource-pattern-type literal
+      run_once: true
+      become_user: kafka

@@ -28,6 +28,9 @@ all:
     kafka:
       vars:
         architecture: x86_64
+        kafka_log_dirs:
+          - /srv/kafka1/data
+          - /srv/kafka2/data
       hosts:
         tkf01:
           ansible_host: 192.168.20.21
