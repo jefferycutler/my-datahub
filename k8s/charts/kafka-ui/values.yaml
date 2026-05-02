@@ -1,16 +1,34 @@
 # Values for kafka-ui helm chart
 # repo: https://provectus.github.io/kafka-ui-charts
+#
+# Cluster index map:
+#   0 = pr-cluster   (new x86 Kafka, SCRAM-SHA-512) — primary
+#   1 = np-cluster   (non-prod, no auth)
+#   2 = pr-original  (legacy Pi-based Kafka, no auth) — to be phased out
+#
+# The SASL JAAS config for cluster 0 is NOT defined here — it comes from
+# the Kubernetes Secret "kafka-ui-pr-cluster-jaas", which must contain the
+# key KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG. The chart wires that in
+# via envFrom, so it lands as an env var on the pod alongside the values below.
 
-yamlApplicationConfig:
-  kafka:
-    clusters:
-      - name: pr-cluster
-        bootstrapServers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
-        # zookeeper: zookeeper:2181
-      - name: np-cluster
-        bootstrapServers: 192.168.20.21:9092,192.168.20.22:9092,192.168.20.23:9092
-    # properties:
-    #   security.protocol: PLAINTEXT
+existingSecret: kafka-ui-pr-cluster-jaas
+
+envs:
+  config:
+    # ---- pr-cluster (new, SCRAM-SHA-512) — primary ----
+    KAFKA_CLUSTERS_0_NAME: pr-cluster
+    KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092
+    KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL: SASL_PLAINTEXT
+    KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM: SCRAM-SHA-512
+    # KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG is injected from existingSecret above.
+
+    # ---- np-cluster ----
+    KAFKA_CLUSTERS_1_NAME: np-cluster
+    KAFKA_CLUSTERS_1_BOOTSTRAPSERVERS: 192.168.20.21:9092,192.168.20.22:9092,192.168.20.23:9092
+
+    # ---- pr-original (legacy, to be phased out) ----
+    KAFKA_CLUSTERS_2_NAME: pr-original
+    KAFKA_CLUSTERS_2_BOOTSTRAPSERVERS: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
 
 ingress:
   enabled: false
