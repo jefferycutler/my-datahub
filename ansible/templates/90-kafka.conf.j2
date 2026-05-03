@@ -47,13 +47,27 @@ template(name="json-template" type="list") {
         constant(value="}\n ")
 }
 
-# Action to send filtered messages to Kafka
-# Criteria: warning or higher (severity <= 4), OR sshd program, OR from area51gate
+# --- Action 1: Legacy cluster (kafkaold group, plaintext, no auth) ---
+# Filter: severity warning or higher (<=4), OR auth/authpriv facility, OR from area51gate
+if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
+    action(type="omkafka"
+           topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
+           broker=["{{ old_brokers_string }}"]
+           template="json-template"
+    )
+}
+
+# --- Action 2: New pr cluster (kafka group, SASL_PLAINTEXT + SCRAM-SHA-512) ---
 if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
     action(type="omkafka"
            topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
            broker=["{{ kafka_brokers_string }}"]
            template="json-template"
-           partitions.auto="on"
+           confParam=[
+               "security.protocol=SASL_PLAINTEXT",
+               "sasl.mechanisms=SCRAM-SHA-512",
+               "sasl.username={{ kafka_rw_user }}",
+               "sasl.password={{ kafka_rw_pw }}"
+           ]
     )
 }

@@ -28,6 +28,9 @@
       # Text Processing & Editors
       - nano
       - jq
+      # others
+      - binutils
+      - gpg
 
   tasks:
     - name: Update apt cache

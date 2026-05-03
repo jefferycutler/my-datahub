@@ -5,6 +5,15 @@
 # Ansible playbook to deploy rsyslog configuration for forwarding logs to Kafka.
 # This playbook targets the load balancer nodes, installs necessary packages,
 # configures rsyslog, and ensures the service is running.
+#
+# During the dual-write migration period this configures TWO omkafka actions:
+#   - Action 1: legacy cluster (group 'kafkaold', plaintext, no auth)
+#   - Action 2: new pr cluster (group 'kafka', SASL_PLAINTEXT + SCRAM-SHA-512)
+# Once the new cluster is validated, remove Action 1 from the template and
+# drop the 'kafkaold' group from inventory.
+#
+# librdkafka1 is upgraded to the Confluent build because Debian Bookworm's
+# package (2.0.2) has a SCRAM-SHA-512 incompatibility with Kafka 4.x brokers.
 #################################################################################
 - name: Deploy rsyslog Kafka configuration to Load Balancers
   hosts: lb
@@ -12,18 +21,84 @@
   gather_facts: yes
 
   vars:
-    # Define Kafka brokers from your inventory.
-    # This joins the list of brokers into a single, comma-separated string.
+    # New pr cluster brokers (SASL_PLAINTEXT + SCRAM-SHA-512)
     kafka_brokers_string: "{{ (groups['kafka'] | map('regex_replace', '^(.*)$', '\\1:9092') | list) | join(',') }}"
+    # Legacy cluster brokers (no auth)
+    old_brokers_string: "{{ (groups['kafkaold'] | map('regex_replace', '^(.*)$', '\\1:9092') | list) | join(',') }}"
+    # Confluent apt repo — needed for librdkafka >= 2.4 (fixes Kafka 4.x SCRAM bug)
+    confluent_repo_release: "7.6"
+  vars_files:
+    - secrets.yaml
 
   tasks:
-    - name: Ensure rsyslog and omkafka module are installed
+    - name: Ensure prerequisites for repo setup are installed
+      ansible.builtin.apt:
+        name:
+          - curl
+          - gnupg
+          - ca-certificates
+        state: present
+        update_cache: yes
+
+    - name: Ensure /usr/share/keyrings exists
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Confluent apt signing key (armored)
+      ansible.builtin.get_url:
+        url: "https://packages.confluent.io/deb/{{ confluent_repo_release }}/archive.key"
+        dest: /tmp/confluent-archive.key
+        mode: '0644'
+        force: yes
+
+    - name: Install Confluent keyring (dearmored, atomic)
+      ansible.builtin.shell: |
+        set -e
+        gpg --dearmor --yes --output /usr/share/keyrings/confluent.gpg.new /tmp/confluent-archive.key
+        mv /usr/share/keyrings/confluent.gpg.new /usr/share/keyrings/confluent.gpg
+        chmod 0644 /usr/share/keyrings/confluent.gpg
+      args:
+        executable: /bin/bash
+      register: keyring_installed
+      changed_when: true
+
+    - name: Add Confluent clients apt repo
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/confluent.list
+        content: "deb [signed-by=/usr/share/keyrings/confluent.gpg] https://packages.confluent.io/clients/deb {{ ansible_distribution_release }} main\n"
+        owner: root
+        group: root
+        mode: '0644'
+      register: confluent_repo_added
+
+    - name: Pin librdkafka1 to Confluent repo (block Debian downgrade)
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/confluent
+        content: |
+          Package: librdkafka1
+          Pin: origin packages.confluent.io
+          Pin-Priority: 1001
+        owner: root
+        group: root
+        mode: '0644'
+      register: confluent_pin_added
+
+    - name: Refresh apt cache after repo/key/pin changes
+      ansible.builtin.apt:
+        update_cache: yes
+      when: keyring_installed.changed or confluent_repo_added.changed or confluent_pin_added.changed
+
+    - name: Ensure rsyslog, omkafka, and recent librdkafka1 are installed
       ansible.builtin.apt:
         name:
           - rsyslog
           - rsyslog-kafka
-        state: present
-        update_cache: yes
+          - librdkafka1
+        state: latest
       when: ansible_facts['os_family'] == "Debian"
 
     - name: Create rsyslog.d directory if it does not exist
@@ -40,7 +115,7 @@
         dest: /etc/rsyslog.d/90-kafka.conf
         owner: root
         group: root
-        mode: '0644'
+        mode: '0640'
       notify: restart rsyslog
 
   handlers:

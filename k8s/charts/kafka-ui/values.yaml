@@ -20,7 +20,7 @@ envs:
     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092
     KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL: SASL_PLAINTEXT
     KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM: SCRAM-SHA-512
-    # KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG is injected from existingSecret above.
+    # REMOVE KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG FROM THIS SECTION
 
     # ---- np-cluster ----
     KAFKA_CLUSTERS_1_NAME: np-cluster
@@ -29,6 +29,14 @@ envs:
     # ---- pr-original (legacy, to be phased out) ----
     KAFKA_CLUSTERS_2_NAME: pr-original
     KAFKA_CLUSTERS_2_BOOTSTRAPSERVERS: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
+
+# Move the secret injection here
+extraEnvVars:
+  - name: KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG
+    valueFrom:
+      secretKeyRef:
+        name: kafka-ui-pr-cluster-jaas
+        key: KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG
 
 ingress:
   enabled: false
