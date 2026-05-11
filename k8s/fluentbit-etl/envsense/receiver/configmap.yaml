@@ -24,6 +24,7 @@ data:
           buffer_size: 64
 
       outputs:
+        # --- Output 1: Legacy cluster (pr-original, no auth) ---
         - name: kafka
           match: sensor.data
           brokers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
@@ -32,3 +33,18 @@ data:
           rdkafka.request.required.acks: 1
           rdkafka.compression.codec: snappy
           rdkafka.queue.buffering.max.ms: 50
+
+        # --- Output 2: New pr-cluster (SASL_PLAINTEXT + SCRAM-SHA-512) ---
+        - name: kafka
+          alias: kafka_new
+          match: sensor.data
+          brokers: 192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092
+          topics: envsensor-pr
+          format: json
+          rdkafka.request.required.acks: 1
+          rdkafka.compression.codec: snappy
+          rdkafka.queue.buffering.max.ms: 50
+          rdkafka.security.protocol: SASL_PLAINTEXT
+          rdkafka.sasl.mechanism: SCRAM-SHA-512
+          rdkafka.sasl.username: ${KAFKA_RW_USER}
+          rdkafka.sasl.password: ${KAFKA_RW_PW}

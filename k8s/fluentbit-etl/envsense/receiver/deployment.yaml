@@ -26,6 +26,9 @@ spec:
             - containerPort: 25000
               protocol: TCP
               name: sensor-ingest
+          envFrom:
+            - secretRef:
+                name: kafka-pr-cluster-sasl              
           resources:
             requests:
               memory: "64Mi"
