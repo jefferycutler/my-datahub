@@ -48,13 +48,16 @@ all:
         architecture: x86_64
       hosts:
         tlb01:
-          ansible_host: 192.168.20.11
+          ansible_host: 192.168.20.10
 
     # Releation Databases
     rdms:
       hosts:
-        datahub:
-          ansible_host: 192.168.20.10
+        mdb1:
+          ansible_host: 192.168.20.13
+          architecture: x86_64
+        mdb2:
+          ansible_host: 192.168.20.14
           architecture: x86_64
 
     # Container registry management
