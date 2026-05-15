@@ -1,0 +1,202 @@
+---
+# Setup_FixedIP.yaml
+#
+# Configures a freshly-provisioned Debian 13 VM with a static IP address.
+#
+# Usage:
+#   ansible-playbook -i <current_dhcp_ip>, configure-fixed-ip.yml \
+#       -u root --ask-pass \
+#       -e "fixed_ip=192.168.30.55 netmask=24 gateway=192.168.30.1"
+#
+# Or interactively (will prompt for the new IP):
+#   ansible-playbook -i <current_dhcp_ip>, configure-fixed-ip.yml -u root --ask-pass
+#
+# Notes:
+#   - The trailing comma in -i makes Ansible treat the arg as an inline inventory.
+#   - SSH will drop when the IP changes; that is expected and not an error.
+
+- name: Configure fixed IP on fresh Debian 13 VM
+  hosts: all
+  gather_facts: true
+  become: true
+
+  vars:
+    # Defaults — override with -e on the command line if you want.
+    netmask: "24"
+    # Gateway is derived from fixed_ip — assumes the gateway is always .1
+    # on the same /24 (e.g. 192.168.30.55 -> 192.168.30.1).
+    gateway: "{{ fixed_ip.split('.')[0:3] | join('.') }}.1"
+    dns_servers:
+      - "{{ gateway }}"
+      - "1.1.1.1"
+    dns_search: "cutlernet.local"
+
+  vars_prompt:
+    - name: fixed_ip
+      prompt: "Enter the fixed IP address to assign (e.g. 192.168.30.55)"
+      private: false
+      # If fixed_ip is already supplied via -e, Ansible skips this prompt.
+
+  pre_tasks:
+    - name: Validate OS is Debian
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Debian'
+        fail_msg: "This playbook targets Debian only. Detected: {{ ansible_facts['distribution'] }}"
+
+    - name: Validate IP address format
+      ansible.builtin.assert:
+        that:
+          - fixed_ip is match('^([0-9]{1,3}\\.){3}[0-9]{1,3}$')
+          - fixed_ip.split('.') | map('int') | select('>=', 0) | select('<=', 255) | list | length == 4
+        fail_msg: "fixed_ip '{{ fixed_ip }}' is not a valid IPv4 address."
+
+    - name: Show derived gateway
+      ansible.builtin.debug:
+        msg: "Gateway derived from {{ fixed_ip }} -> {{ gateway }}"
+
+    - name: Warn if running against Debian < 13
+      ansible.builtin.debug:
+        msg: "Detected Debian {{ ansible_facts['distribution_major_version'] }}. Playbook designed for 13 (Trixie) but should work on 11/12 as well."
+      when: ansible_facts['distribution_major_version'] | int < 13
+
+  tasks:
+    - name: Detect primary network interface
+      ansible.builtin.set_fact:
+        primary_iface: "{{ ansible_facts['default_ipv4']['interface'] }}"
+
+    - name: Show what we are about to do
+      ansible.builtin.debug:
+        msg:
+          - "Host current IP: {{ ansible_facts['default_ipv4']['address'] }}"
+          - "Interface:        {{ primary_iface }}"
+          - "New fixed IP:     {{ fixed_ip }}/{{ netmask }}"
+          - "Gateway:          {{ gateway }}"
+          - "DNS:              {{ dns_servers | join(', ') }}"
+
+    - name: Detect which network management stack is in use
+      ansible.builtin.shell: |
+        if systemctl is-active --quiet systemd-networkd; then
+          echo "networkd"
+        elif systemctl is-active --quiet NetworkManager; then
+          echo "nm"
+        elif systemctl is-active --quiet networking; then
+          echo "ifupdown"
+        else
+          echo "unknown"
+        fi
+      register: net_stack
+      changed_when: false
+
+    - name: Show detected network stack
+      ansible.builtin.debug:
+        msg: "Network management stack: {{ net_stack.stdout }}"
+
+    - name: Fail if we cannot identify the network stack
+      ansible.builtin.fail:
+        msg: "Could not detect a known network management stack. Aborting."
+      when: net_stack.stdout == "unknown"
+
+    # ---------- ifupdown path (/etc/network/interfaces) ----------
+    - name: Configure static IP via /etc/network/interfaces (ifupdown)
+      ansible.builtin.copy:
+        dest: /etc/network/interfaces
+        content: |
+          # Managed by Ansible — configure-fixed-ip.yml
+          source /etc/network/interfaces.d/*
+
+          auto lo
+          iface lo inet loopback
+
+          auto {{ primary_iface }}
+          iface {{ primary_iface }} inet static
+              address {{ fixed_ip }}/{{ netmask }}
+              gateway {{ gateway }}
+              dns-nameservers {{ dns_servers | join(' ') }}
+              dns-search {{ dns_search }}
+        owner: root
+        group: root
+        mode: "0644"
+        backup: true
+      when: net_stack.stdout == "ifupdown"
+
+    # ---------- systemd-networkd path ----------
+    - name: Remove any existing networkd configs for this interface
+      ansible.builtin.file:
+        path: "/etc/systemd/network/{{ item }}"
+        state: absent
+      loop:
+        - "10-{{ primary_iface }}.network"
+        - "20-{{ primary_iface }}.network"
+        - "99-default.network"
+      when: net_stack.stdout == "networkd"
+
+    - name: Configure static IP via systemd-networkd
+      ansible.builtin.copy:
+        dest: "/etc/systemd/network/10-{{ primary_iface }}.network"
+        content: |
+          # Managed by Ansible — configure-fixed-ip.yml
+          [Match]
+          Name={{ primary_iface }}
+
+          [Network]
+          Address={{ fixed_ip }}/{{ netmask }}
+          Gateway={{ gateway }}
+          {% for dns in dns_servers %}
+          DNS={{ dns }}
+          {% endfor %}
+          Domains={{ dns_search }}
+        owner: root
+        group: root
+        mode: "0644"
+      when: net_stack.stdout == "networkd"
+
+    # ---------- NetworkManager path ----------
+    - name: Configure static IP via NetworkManager
+      ansible.builtin.shell: |
+        set -e
+        CON=$(nmcli -g GENERAL.CONNECTION device show {{ primary_iface }})
+        if [ -z "$CON" ] || [ "$CON" = "--" ]; then
+          CON="static-{{ primary_iface }}"
+          nmcli connection add type ethernet ifname {{ primary_iface }} con-name "$CON"
+        fi
+        nmcli connection modify "$CON" \
+          ipv4.addresses {{ fixed_ip }}/{{ netmask }} \
+          ipv4.gateway {{ gateway }} \
+          ipv4.dns "{{ dns_servers | join(' ') }}" \
+          ipv4.dns-search "{{ dns_search }}" \
+          ipv4.method manual \
+          connection.autoconnect yes
+      when: net_stack.stdout == "nm"
+      changed_when: true
+
+    # ---------- /etc/hosts cleanup ----------
+    - name: Update /etc/hosts to reflect new IP
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^[0-9.]+\s+{{ ansible_facts["hostname"] }}'
+        line: "{{ fixed_ip }}    {{ ansible_facts['fqdn'] }} {{ ansible_facts['hostname'] }}"
+        state: present
+        backup: true
+
+    # ---------- Apply ----------
+    # Reboot is the cleanest way to apply on a fresh VM. async/poll=0 lets
+    # Ansible fire and exit before the SSH connection dies.
+    - name: Schedule reboot to apply network changes
+      ansible.builtin.shell: "sleep 2 && /sbin/reboot"
+      async: 1
+      poll: 0
+      ignore_errors: true
+
+    - name: Wait for host to come back on the NEW IP
+      ansible.builtin.wait_for:
+        host: "{{ fixed_ip }}"
+        port: 22
+        delay: 10
+        timeout: 180
+      delegate_to: localhost
+      become: false
+
+    - name: Done
+      ansible.builtin.debug:
+        msg: "Host is now reachable at {{ fixed_ip }}. Update your inventory accordingly."
