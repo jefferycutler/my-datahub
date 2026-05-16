@@ -22,6 +22,9 @@ spec:
           image: fluent/fluent-bit:4.2.3
           args:
             - --config=/fluent-bit/etc/fluent-bit.yaml
+          envFrom:
+            - secretRef:
+                name: kafka-pr-cluster-sasl            
           resources:
             requests:
               memory: "64Mi"

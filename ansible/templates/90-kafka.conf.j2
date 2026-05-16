@@ -47,18 +47,7 @@ template(name="json-template" type="list") {
         constant(value="}\n ")
 }
 
-# --- Action 1: Legacy cluster (kafkaold group, plaintext, no auth) ---
-# Filter: severity warning or higher (<=4), OR auth/authpriv facility, OR from area51gate
-if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
-    action(type="omkafka"
-           topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
-           broker=["{{ old_brokers_string }}"]
-           template="json-template"
-           partitions.auto="on"
-    )
-}
-
-# --- Action 2: New pr cluster (kafka group, SASL_PLAINTEXT + SCRAM-SHA-512) ---
+# --- Action 1: PR cluster (kafka group, SASL_PLAINTEXT + SCRAM-SHA-512) ---
 if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacility-text == "authpriv") or ($hostname == "area51gate") then {
     action(type="omkafka"
            topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
