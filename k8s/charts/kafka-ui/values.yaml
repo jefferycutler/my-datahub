@@ -15,6 +15,10 @@ existingSecret: kafka-ui-pr-cluster-jaas
 
 envs:
   config:
+    # ---- Authentication ----
+    AUTH_TYPE: LOGIN_FORM
+    SPRING_SECURITY_USER_NAME: admin  
+
     # ---- pr-cluster (new, SCRAM-SHA-512) — primary ----
     KAFKA_CLUSTERS_0_NAME: pr-cluster
     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: 192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092
@@ -37,7 +41,12 @@ extraEnvVars:
       secretKeyRef:
         name: kafka-ui-pr-cluster-jaas
         key: KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG
-
+  - name: SPRING_SECURITY_USER_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: kafka-ui-pr-cluster-jaas
+        key: SPRING_SECURITY_USER_PASSWORD
+        
 ingress:
   enabled: false
   host: kafkaui.k8spr.area51
