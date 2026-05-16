@@ -54,6 +54,7 @@ if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacilit
            topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
            broker=["{{ old_brokers_string }}"]
            template="json-template"
+           partitions.auto="on"
     )
 }
 
@@ -63,6 +64,7 @@ if ($syslogseverity <= 4) or ($syslogfacility-text == "auth") or ($syslogfacilit
            topic="{{ kafka_topic | default('syslog-ingest-pr') }}"
            broker=["{{ kafka_brokers_string }}"]
            template="json-template"
+           partitions.auto="on"
            confParam=[
                "security.protocol=SASL_PLAINTEXT",
                "sasl.mechanisms=SCRAM-SHA-512",
