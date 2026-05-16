@@ -13,13 +13,17 @@ data:
     pipeline:
       inputs:
         - name: kafka
-          brokers: 192.168.30.24:9092,192.168.30.25:9092,192.168.30.26:9092,192.168.30.27:9092
+          brokers: 192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092
           topics: syslog-ingest-pr
           group_id: bqwriter-syslog-pr
           format: json
           rdkafka.auto.offset.reset: earliest
           poll_ms: 1000
-
+          rdkafka.security.protocol: SASL_PLAINTEXT
+          rdkafka.sasl.mechanism: SCRAM-SHA-512
+          rdkafka.sasl.username: ${KAFKA_RW_USER}
+          rdkafka.sasl.password: ${KAFKA_RW_PW}
+          
       filters:
         # Step 1: Lift syslog fields out of the Kafka payload envelope
         - name: nest

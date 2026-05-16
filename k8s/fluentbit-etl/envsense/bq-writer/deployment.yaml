@@ -24,7 +24,7 @@ spec:
             - --config=/fluent-bit/etc/fluent-bit.yaml
           envFrom:
             - secretRef:
-                name: kafka-pr-cluster-sasl            
+                name: kafka-pr-cluster-sasl-consumer
           resources:
             requests:
               memory: "64Mi"
