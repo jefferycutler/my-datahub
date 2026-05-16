@@ -28,7 +28,7 @@ spec:
               name: sensor-ingest
           envFrom:
             - secretRef:
-                name: kafka-pr-cluster-sasl              
+                name: kafka-pr-cluster-sasl-producer
           resources:
             requests:
               memory: "64Mi"
