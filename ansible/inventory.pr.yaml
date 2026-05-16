@@ -45,26 +45,6 @@ all:
           ansible_host: 192.168.30.39
 
     # Kafka cluster nodes.
-    kafkaold:
-      hosts:
-        kf01:
-          ansible_host: 192.168.30.24
-          architecture: aarch64
-          kafka_is_controller: true
-        kf02:
-          ansible_host: 192.168.30.25
-          architecture: aarch64
-          kafka_is_controller: true
-        kf03:
-          ansible_host: 192.168.30.26
-          architecture: aarch64
-          kafka_is_controller: true
-        kf04:
-          architecture: aarch64
-          ansible_host: 192.168.30.27
-          kafka_is_controller: false
-
-    # Kafka cluster nodes.
     kafka:
       vars:
         zagent: true
