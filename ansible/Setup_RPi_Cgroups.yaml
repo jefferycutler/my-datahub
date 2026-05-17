@@ -1,6 +1,6 @@
 ---
 #################################################################################
-# configure_cgroups.yaml
+# Setup_RPi_Cgroups.yaml
 #
 # Ansible playbook to configure cgroup settings on the kernel command line.
 # This is often required for container runtimes like those used by K3s/Kubernetes.

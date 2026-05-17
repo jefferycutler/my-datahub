@@ -29,8 +29,9 @@
 # ---------------------------------------------------------------
 
 # SSH keys and config
--a always,exit -F arch=b64 -F path=/root/.ssh -F perm=wa -k ssh_keys
--a always,exit -F arch=b64 -F path=/etc/ssh/sshd_config -F perm=wa -k ssh_config
+-w /root/.ssh -p wa -k ssh_keys
+-w /home/{{ admin_user }}/.ssh -p wa -k ssh_keys
+-w /etc/ssh/sshd_config -p wa -k ssh_config
 
 # Privilege escalation
 -a always,exit -F arch=b64 -F path=/usr/bin/sudo -F perm=x -F auid>=1000 -F auid!=4294967295 -k priv_esc

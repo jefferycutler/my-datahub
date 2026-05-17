@@ -4,7 +4,7 @@
 # Configures a freshly-provisioned Debian 13 VM with a static IP address.
 #
 # Usage:
-#   ansible-playbook -i <current_dhcp_ip>, configure-fixed-ip.yml \
+#   ansible-playbook -i <current_dhcp_ip>, Setup_FixedIP.yaml \
 #       -u root --ask-pass \
 #       -e "fixed_ip=192.168.30.55 netmask=24 gateway=192.168.30.1"
 #

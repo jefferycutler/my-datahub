@@ -19,10 +19,13 @@ all:
         zagent: true
       hosts:
         k801:
+          rpi_model: pi5
           ansible_host: 192.168.30.31
         k802:
+          rpi_model: pi5
           ansible_host: 192.168.30.32
         k803:
+          rpi_model: pi5
           ansible_host: 192.168.30.33
 
     # Kubernetes worker nodes.
@@ -32,17 +35,35 @@ all:
         zagent: true
       hosts:
         k804:
+          rpi_model: pi4
           ansible_host: 192.168.30.34
         k805:
+          rpi_model: pi4
           ansible_host: 192.168.30.35
         k806:
+          rpi_model: pi4
           ansible_host: 192.168.30.36
         k807:
+          rpi_model: pi4
           ansible_host: 192.168.30.37
         k808:
+          rpi_model: pi5
           ansible_host: 192.168.30.38
         k809:
+          rpi_model: pi5
           ansible_host: 192.168.30.39
+        k810:
+          rpi_model: pi5
+          ansible_host: 192.168.30.40
+        k811:
+          rpi_model: pi5
+          ansible_host: 192.168.30.41
+        k812:
+          rpi_model: pi5
+          ansible_host: 192.168.30.42
+        k813:
+          rpi_model: pi5
+          ansible_host: 192.168.30.43
 
     # Kafka cluster nodes.
     kafka:
