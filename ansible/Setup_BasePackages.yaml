@@ -1,9 +1,9 @@
 ---
 #################################################################################
-# Setup_BasePackaes.yaml
+# Setup_BasePackages.yaml
 #
 # Ansible playbook to run when new node is added
-# these are base packages usefull on all Debian based hosts
+# these are base packages useful on all Debian based hosts
 #################################################################################
 - name: Install Common Base Packages on Debian Hosts
   hosts: all
@@ -18,19 +18,46 @@
       - nmap
       - iputils-ping
       - traceroute
+      - tcpdump           # packet capture for network debugging
+      - netcat-openbsd    # TCP/UDP port testing
+      - iperf3            # bandwidth testing between nodes
+      - mtr-tiny          # combined ping+traceroute, better than either alone
+      - socat             # advanced netcat, useful for Kafka/rsyslog TCP testing
+
       # System Monitoring & Management
       - htop
-      - sysstat
+      - sysstat           # iostat, mpstat, sar
       - iotop
       - tmux
       - rsync
       - tree
+      - dstat             # real-time system stats, readable live monitoring
+      - lsof              # list open files and sockets (what has this port open)
+      - strace            # trace syscalls on misbehaving processes
+
+      # Hardware Inventory & Health
+      - pciutils          # lspci - hardware inventory
+      - usbutils          # lsusb - useful for USB-attached storage (Pi nodes)
+      - dmidecode         # hardware/BIOS info on x86 nodes
+      - smartmontools     # SMART disk health monitoring via smartctl
+
+      # Disk & Storage
+      - fio               # disk I/O benchmarking, validate storage before trusting it
+      - parted            # partition management
+
       # Text Processing & Editors
       - nano
       - jq
-      # others
+      - gawk              # powerful awk for log parsing
+      - colordiff         # colored diff output
+
+      # Security
+      - lynis             # periodic security auditing and hardening checks
+
+      # Others
       - binutils
       - gpg
+      - rsyslog           # ensure present before timezone/other handlers fire
 
   tasks:
     - name: Update apt cache
@@ -47,3 +74,27 @@
       apt:
         autoremove: yes
         autoclean: yes
+
+    #################################################################
+    # smartd configuration for disk health monitoring
+    # Enables automatic SMART monitoring with email alerts
+    #################################################################
+    - name: Configure smartd for disk health monitoring
+      ansible.builtin.lineinfile:
+        path: /etc/smartd.conf
+        regexp: '^DEVICESCAN'
+        line: 'DEVICESCAN -a -o on -S on -n standby,q -s (S/../.././02|L/../../6/03) -W 4,45,50 -m root -M exec /usr/share/smartmontools/smartd-runner'
+        backup: yes
+      notify: restart smartd
+
+    - name: Ensure smartd is started and enabled
+      ansible.builtin.systemd:
+        name: smartd
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: restart smartd
+      ansible.builtin.service:
+        name: smartd
+        state: restarted

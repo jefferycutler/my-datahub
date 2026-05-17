@@ -119,11 +119,14 @@ all:
     # Database systems
     dbsys:
       vars:
-        architecture: x86_64
         zagent: true
       hosts:
         mdb1:
           ansible_host: 192.168.30.13
+          architecture: x86_64
+          dbtype: mariadb
         mdb2:
           ansible_host: 192.168.30.14
+          architecture: aarch64
+          dbtype: mariadb
     

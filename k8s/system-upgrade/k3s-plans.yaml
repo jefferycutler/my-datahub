@@ -12,4 +12,20 @@ spec:
   cordon: true
   upgrade:
     image: rancher/k3s-upgrade
-  version: v1.35.1+k3s1
+  version: v1.35.4+k3s1
+---
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: k3s-server-upgrade
+  namespace: system-upgrade
+spec:
+  concurrency: 1
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: Exists}
+  serviceAccountName: system-upgrade
+  cordon: true
+  upgrade:
+    image: rancher/k3s-upgrade
+  version: v1.35.4+k3s1  

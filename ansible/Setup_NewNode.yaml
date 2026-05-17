@@ -1,0 +1,18 @@
+---
+#################################################################################
+# Setup_NewNode.yaml
+#
+# Master playbook for bootstrapping a new node.
+# Runs all base configuration playbooks in the correct order.
+# Usage:
+#   ansible-playbook Setup_NewNode.yaml -i inventory.pr.yaml --limit "mdb1,mdb2"
+#################################################################################
+
+- import_playbook: Setup_LinuxUsers.yaml
+- import_playbook: Setup_BasePackages.yaml
+- import_playbook: Setup_Timezone.yaml
+- import_playbook: Setup_DebAutoPatch.yaml
+- import_playbook: Setup_MailAgent.yaml
+- import_playbook: Setup_Auditd.yaml
+- import_playbook: Setup_SyslogForward.yaml
+- import_playbook: Setup_ZabbixAgent.yaml
