@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Bash(ansible-playbook --syntax-check *)",
+      "Bash(ansible-playbook --check *)",
+      "Bash(ansible-inventory *)",
+      "Bash(git status)",
+      "Bash(git diff *)"
+    ]
+  }
+}

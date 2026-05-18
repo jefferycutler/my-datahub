@@ -116,17 +116,17 @@ all:
           ansible_host: 192.168.30.12
           architecture: x86_64
 
-    # Database systems
-    dbsys:
+    # Databases and data stores
+    databases:
       vars:
         zagent: true
       hosts:
         mdb1:
           ansible_host: 192.168.30.13
           architecture: x86_64
-          dbtype: mariadb
+          mariadb_role: primary
         mdb2:
           ansible_host: 192.168.30.14
           architecture: aarch64
-          dbtype: mariadb
+          mariadb_role: replica
     

@@ -1,0 +1,114 @@
+---
+#################################################################################
+# Setup_MariaDB_Common.yaml
+#
+# Installs MariaDB and applies the base configuration that is common to both
+# primary and replica nodes.  Run this against all hosts in the `databases`
+# group before running Setup_MariaDB_Primary.yaml or Setup_MariaDB_Replica.yaml.
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Common.yaml
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Common.yaml --check
+#################################################################################
+- name: Install and configure MariaDB common base
+  hosts: databases
+  become: yes
+  vars:
+    # Override mariadb_datadir in host_vars when binding to a separate volume.
+    mariadb_datadir: /var/lib/mysql
+    mariadb_port: 3306
+  vars_files:
+    - secrets.yaml
+
+  tasks:
+
+  #################################################################
+  # Package installation
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install MariaDB and supporting packages
+      ansible.builtin.apt:
+        name:
+          - mariadb-server
+          - mariadb-client
+          - python3-pymysql     # required by community.mysql Ansible modules
+        state: present
+
+  #################################################################
+  # Data directory
+  # Skipped for the default path — the MariaDB package owns /var/lib/mysql.
+  # Set mariadb_datadir in host_vars to mount a separate volume.
+    - name: Create custom MariaDB data directory
+      ansible.builtin.file:
+        path: "{{ mariadb_datadir }}"
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: "0750"
+      when: mariadb_datadir != '/var/lib/mysql'
+
+  #################################################################
+  # Base configuration
+  # Overwrites the Debian-package default 50-server.cnf entirely;
+  # primary- and replica-specific options go in separate .cnf files
+  # deployed by Setup_MariaDB_Primary.yaml / Setup_MariaDB_Replica.yaml.
+    - name: Deploy base MariaDB server configuration
+      ansible.builtin.template:
+        src: templates/mariadb.server.cnf.j2
+        dest: /etc/mysql/mariadb.conf.d/50-server.cnf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart mariadb
+
+  #################################################################
+  # Service
+    - name: Enable and start MariaDB
+      ansible.builtin.systemd:
+        name: mariadb
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  #################################################################
+  # Secure the installation
+  # Debian/Ubuntu MariaDB 10.4+ authenticates root via unix_socket by default.
+  # login_unix_socket works both before and after a password is set, making
+  # all of these tasks idempotent across fresh and repeated runs.
+    - name: Set MariaDB root password
+      community.mysql.mysql_user:
+        name: root
+        host: localhost
+        password: "{{ mariadb_root_pw }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: Write /root/.my.cnf for CLI and subsequent Ansible MySQL tasks
+      ansible.builtin.template:
+        src: templates/mariadb.root.my.cnf.j2
+        dest: /root/.my.cnf
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Remove anonymous MariaDB users
+      community.mysql.mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Remove test database
+      community.mysql.mysql_db:
+        name: test
+        state: absent
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+  handlers:
+    - name: restart mariadb
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted

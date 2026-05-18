@@ -50,15 +50,17 @@ all:
         tlb01:
           ansible_host: 192.168.20.10
 
-    # Releation Databases
-    rdms:
+    # Databases and data stores
+    databases:
       hosts:
         mdb1:
           ansible_host: 192.168.20.13
           architecture: x86_64
+          mariadb_role: primary
         mdb2:
           ansible_host: 192.168.20.14
           architecture: x86_64
+          mariadb_role: replica
 
     # Container registry management
     registry:
