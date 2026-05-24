@@ -4,6 +4,9 @@ all:
     # Map the generic playbook variables to the PR secrets
     harbor_user: "{{ harbor_pr_user }}"
     harbor_password: "{{ harbor_pr_password }}"
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
 
   children:
     # Kubernetes cluster nodes (control plane and workers).

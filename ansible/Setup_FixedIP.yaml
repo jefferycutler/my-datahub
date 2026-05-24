@@ -27,9 +27,8 @@
     # on the same /24 (e.g. 192.168.30.55 -> 192.168.30.1).
     gateway: "{{ fixed_ip.split('.')[0:3] | join('.') }}.1"
     dns_servers:
-      - "{{ gateway }}"
       - "1.1.1.1"
-    dns_search: "cutlernet.local"
+      - "8.8.8.8"
 
   vars_prompt:
     - name: fixed_ip
@@ -113,7 +112,6 @@
               address {{ fixed_ip }}/{{ netmask }}
               gateway {{ gateway }}
               dns-nameservers {{ dns_servers | join(' ') }}
-              dns-search {{ dns_search }}
         owner: root
         group: root
         mode: "0644"

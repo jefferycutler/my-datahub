@@ -38,6 +38,19 @@
         state: present
 
   #################################################################
+  # Log directory
+  # The MariaDB package does not create /var/log/mysql/, but our base config
+  # writes error.log and slow.log there — and Setup_MariaDB_Primary.yaml later
+  # puts binlog files here too (binlog has no fallback path, unlike error.log).
+    - name: Create MariaDB log directory
+      ansible.builtin.file:
+        path: /var/log/mysql
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: "0750"
+
+  #################################################################
   # Data directory
   # Skipped for the default path — the MariaDB package owns /var/lib/mysql.
   # Set mariadb_datadir in host_vars to mount a separate volume.

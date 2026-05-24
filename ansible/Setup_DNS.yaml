@@ -1,0 +1,51 @@
+---
+#################################################################################
+# Setup_DNS.yaml
+#
+# Ensures /etc/resolv.conf on every managed host contains the DNS servers
+# defined in inventory all.vars (dns_servers).
+#
+# SCOPE: Works on ifupdown- and systemd-networkd-managed hosts. On hosts where
+# NetworkManager owns /etc/resolv.conf directly (the default on most of the
+# fleet, set up via the NM TUI), this playbook is a no-op — the head file is
+# deployed but nothing reads it because NM doesn't defer to resolvconf.
+#
+# Bringing NM hosts under this playbook means dropping
+# /etc/NetworkManager/conf.d/rc-manager.conf with `rc-manager=resolvconf` and
+# reloading NM. Deferred until there's a reason to standardize (e.g. an
+# internal DNS server that the fleet should universally pick up).
+#################################################################################
+- name: Configure DNS resolvers on all managed hosts
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Sanity-check inventory variables
+      ansible.builtin.assert:
+        that:
+          - dns_servers is defined
+          - dns_servers | length > 0
+        fail_msg: "Define dns_servers (list) in inventory all.vars"
+
+  tasks:
+    - name: Ensure resolvconf is installed
+      ansible.builtin.apt:
+        name: resolvconf
+        state: present
+        update_cache: yes
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Deploy resolvconf head file
+      ansible.builtin.template:
+        src: templates/resolvconf-head.j2
+        dest: /etc/resolvconf/resolv.conf.d/head
+        owner: root
+        group: root
+        mode: "0644"
+      notify: regenerate resolvconf
+
+  handlers:
+    - name: regenerate resolvconf
+      ansible.builtin.command: /sbin/resolvconf -u
+      changed_when: true

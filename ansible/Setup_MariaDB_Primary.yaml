@@ -1,0 +1,91 @@
+---
+#################################################################################
+# Setup_MariaDB_Primary.yaml
+#
+# Applies primary-specific configuration to the host in the `databases` group
+# with mariadb_role: primary.  Enables binary logging with GTID, creates the
+# replication user, and produces a consistent dump that Setup_MariaDB_Replica.yaml
+# will restore on the replica to seed it.
+#
+# Prerequisite: Setup_MariaDB_Common.yaml has already been applied to this host.
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Primary.yaml
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Primary.yaml --check
+#################################################################################
+- name: Configure MariaDB primary
+  hosts: databases
+  become: yes
+  vars:
+    mariadb_dump_path: /var/backups/mariadb/primary-dump.sql
+  vars_files:
+    - secrets.yaml
+
+  tasks:
+
+    # Single play targets the whole `databases` group; non-primary hosts exit
+    # immediately so the same playbook can be run alongside the replica one.
+    - name: Skip hosts that are not the primary
+      ansible.builtin.meta: end_host
+      when: mariadb_role | default('') != 'primary'
+
+  #################################################################
+  # Primary-specific server configuration
+    - name: Deploy primary-specific MariaDB configuration
+      ansible.builtin.template:
+        src: templates/mariadb.primary.cnf.j2
+        dest: /etc/mysql/mariadb.conf.d/60-primary.cnf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart mariadb
+
+    # Force the restart now so binary logging is active before we create the
+    # replication user and take the seeding dump — otherwise the dump's GTID
+    # position would be empty and the replica would fail to attach.
+    - name: Apply config changes before continuing
+      ansible.builtin.meta: flush_handlers
+
+  #################################################################
+  # Replication user
+  # One grant per replica host in the `databases` group (host-locked, not
+  # wildcarded).  Re-running with the same password is a no-op.
+    - name: Create replication user for each replica
+      community.mysql.mysql_user:
+        name: "{{ mariadb_repl_user }}"
+        host: "{{ hostvars[item].ansible_host }}"
+        password: "{{ mariadb_repl_pw }}"
+        priv: "*.*:REPLICATION SLAVE"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      loop: "{{ groups['databases'] | difference([inventory_hostname]) }}"
+
+  #################################################################
+  # Consistent snapshot for seeding the replica
+  # --single-transaction: InnoDB snapshot without global locks.
+  # --gtid: writes SET GLOBAL gtid_slave_pos='...' so the replica can resume
+  #         with MASTER_USE_GTID=slave_pos.
+  # --master-data=2: also records the binlog file/pos as a comment for
+  #                  manual recovery.
+  # `creates:` guards re-runs; delete the file to regenerate.
+    - name: Ensure dump directory exists
+      ansible.builtin.file:
+        path: "{{ mariadb_dump_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Take consistent dump for replica seeding
+      ansible.builtin.shell:
+        cmd: >
+          umask 077 &&
+          mysqldump --all-databases --single-transaction --gtid --master-data=2
+          > {{ mariadb_dump_path }}
+        creates: "{{ mariadb_dump_path }}"
+
+  handlers:
+    - name: restart mariadb
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted

@@ -1,0 +1,18 @@
+# Ansible-managed: MariaDB primary-specific configuration
+# Deployed by Setup_MariaDB_Primary.yaml.  Base options (server_id, datadir,
+# bind-address, etc.) come from 50-server.cnf — keep this file primary-only.
+
+[mysqld]
+# Binary logging — required for the replica to receive events.
+log_bin                 = /var/log/mysql/mariadb-bin
+log_bin_index           = /var/log/mysql/mariadb-bin.index
+binlog_format           = ROW
+expire_logs_days        = 7
+
+# GTID-based replication.
+gtid_strict_mode        = 1
+gtid_domain_id          = {{ groups['databases'].index(inventory_hostname) + 1 }}
+
+# Apply replicated events to this server's own binlogs too, so the primary
+# can later be demoted to a replica during a failover without losing history.
+log_slave_updates       = 1

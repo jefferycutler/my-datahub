@@ -4,6 +4,9 @@ all:
     # Map the generic playbook variables to the PR secrets
     harbor_user: "{{ harbor_np_user }}"
     harbor_password: "{{ harbor_np_password }}"
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
 
   children:
     # Kubernetes control plane nodes for the K3s cluster.
@@ -53,11 +56,11 @@ all:
     # Databases and data stores
     databases:
       hosts:
-        mdb1:
+        tmdb1:
           ansible_host: 192.168.20.13
           architecture: x86_64
           mariadb_role: primary
-        mdb2:
+        tmdb2:
           ansible_host: 192.168.20.14
           architecture: x86_64
           mariadb_role: replica

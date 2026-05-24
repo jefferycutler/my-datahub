@@ -1,0 +1,27 @@
+# Ansible-managed: MariaDB replica-specific configuration
+# Deployed by Setup_MariaDB_Replica.yaml.  Base options (server_id, datadir,
+# bind-address, etc.) come from 50-server.cnf.
+#
+# Binlog and GTID are mirrored from the primary's 60-primary.cnf — the replica
+# needs its own binlog so replicated events also land here, which is what
+# log_slave_updates requires and what makes promoting this replica to primary
+# possible during a failover.
+
+[mysqld]
+# Block non-SUPER writes; replication threads use SUPER and bypass this.
+read_only               = 1
+
+# Relay log: events received from the primary, applied locally.
+relay_log               = /var/log/mysql/relay-bin
+relay_log_index         = /var/log/mysql/relay-bin.index
+
+# Binary logging (so this host can later be promoted to primary).
+log_bin                 = /var/log/mysql/mariadb-bin
+log_bin_index           = /var/log/mysql/mariadb-bin.index
+binlog_format           = ROW
+expire_logs_days        = 7
+log_slave_updates       = 1
+
+# GTID.  gtid_domain_id must be unique across the replication pair.
+gtid_strict_mode        = 1
+gtid_domain_id          = {{ groups['databases'].index(inventory_hostname) + 1 }}

@@ -1,0 +1,5 @@
+# Ansible-managed: DNS resolver configuration
+# Generated from dns_servers in inventory all.vars
+{% for ns in dns_servers %}
+nameserver {{ ns }}
+{% endfor %}

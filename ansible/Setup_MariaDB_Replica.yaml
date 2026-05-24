@@ -1,0 +1,193 @@
+---
+#################################################################################
+# Setup_MariaDB_Replica.yaml
+#
+# Applies replica-specific configuration to the host in the `databases` group
+# with mariadb_role: replica.  Pulls the seeding dump produced by
+# Setup_MariaDB_Primary.yaml, restores it, and starts GTID-based replication
+# pointing at the primary.
+#
+# Prerequisite: Setup_MariaDB_Common.yaml and Setup_MariaDB_Primary.yaml have
+# both been applied (the primary's seeding dump must already exist).
+#
+# Idempotent: a host that is already a configured replica re-runs as a no-op
+# beyond the template/handler check.  To force a re-seed, run on the replica:
+#     STOP REPLICA; RESET REPLICA ALL;
+# and re-run this playbook.
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Replica.yaml
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_Replica.yaml --check
+#################################################################################
+- name: Configure MariaDB replica
+  hosts: databases
+  become: yes
+  vars:
+    mariadb_dump_path: /var/backups/mariadb/primary-dump.sql
+    mariadb_dump_staging: "/tmp/{{ inventory_hostname }}-mariadb-primary-dump.sql"
+    # The primary host is the one in `databases` with mariadb_role: primary.
+    mariadb_primary_host: >-
+      {{ groups['databases']
+         | map('extract', hostvars)
+         | selectattr('mariadb_role', 'equalto', 'primary')
+         | map(attribute='inventory_hostname')
+         | first }}
+  vars_files:
+    - secrets.yaml
+
+  tasks:
+
+    - name: Skip hosts that are not the replica
+      ansible.builtin.meta: end_host
+      when: mariadb_role | default('') != 'replica'
+
+  #################################################################
+  # Replica-specific server configuration
+    - name: Deploy replica-specific MariaDB configuration
+      ansible.builtin.template:
+        src: templates/mariadb.replica.cnf.j2
+        dest: /etc/mysql/mariadb.conf.d/60-replica.cnf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart mariadb
+
+    - name: Apply config changes before continuing
+      ansible.builtin.meta: flush_handlers
+
+  #################################################################
+  # Idempotency gate: skip seeding if this host is already a configured replica.
+    - name: Check current replication status
+      community.mysql.mysql_replication:
+        mode: getreplica
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      register: replica_status
+
+  #################################################################
+  # Seed from primary dump and configure replication.
+  # The block only runs if SHOW REPLICA STATUS came back empty.
+    - name: Seed replica from primary dump and start replication
+      when: not (replica_status.Is_Replica | default(false))
+      block:
+
+        - name: Ensure dump destination directory exists on replica
+          ansible.builtin.file:
+            path: "{{ mariadb_dump_path | dirname }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0700"
+
+        # Fetch via controller so the two hosts don't need direct SSH between them.
+        - name: Fetch primary dump to controller
+          ansible.builtin.fetch:
+            src: "{{ mariadb_dump_path }}"
+            dest: "{{ mariadb_dump_staging }}"
+            flat: yes
+          delegate_to: "{{ mariadb_primary_host }}"
+
+        - name: Copy primary dump from controller to replica
+          ansible.builtin.copy:
+            src: "{{ mariadb_dump_staging }}"
+            dest: "{{ mariadb_dump_path }}"
+            owner: root
+            group: root
+            mode: "0600"
+
+        # The dump was taken with --master-data=2 --gtid so the position is
+        # embedded as a comment near the end:
+        #   -- SET GLOBAL gtid_slave_pos='1-1-5';
+        - name: Extract gtid_slave_pos from dump
+          ansible.builtin.shell:
+            cmd: "grep -oP \"SET GLOBAL gtid_slave_pos='\\K[^']+\" {{ mariadb_dump_path }}"
+          register: gtid_position
+          changed_when: false
+
+        - name: Fail if GTID position could not be extracted
+          ansible.builtin.fail:
+            msg: "No GTID position found in {{ mariadb_dump_path }} — was the dump taken with --gtid?"
+          when: gtid_position.stdout | trim | length == 0
+
+        # Defensive: clear any half-configured replica state before reseeding.
+        - name: Stop any existing replica thread
+          community.mysql.mysql_replication:
+            mode: stopreplica
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+          failed_when: false
+
+        - name: Reset replica state
+          community.mysql.mysql_replication:
+            mode: resetreplicaall
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+          failed_when: false
+
+        # The replica's own binlog is enabled (for failover via log_slave_updates),
+        # which means the dump restore would otherwise write 1000s of events
+        # tagged with the replica's gtid_domain_id.  Clear the binlog first, then
+        # restore with sql_log_bin=0 so the restore generates no GTIDs at all —
+        # otherwise SET GLOBAL gtid_slave_pos below conflicts with them.
+        - name: Reset binary log on replica before restore
+          community.mysql.mysql_replication:
+            mode: resetprimary
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        # Restore the dump.  /root/.my.cnf was deployed by Common, so the bare
+        # `mysql` client authenticates against the local socket.
+        - name: Restore primary dump (binlog suppressed)
+          ansible.builtin.shell:
+            cmd: "(echo 'SET SESSION sql_log_bin = 0;'; cat {{ mariadb_dump_path }}) | mysql"
+
+        - name: Set gtid_slave_pos from extracted dump position
+          community.mysql.mysql_query:
+            query: "SET GLOBAL gtid_slave_pos = %s"
+            positional_args:
+              - "{{ gtid_position.stdout | trim }}"
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        - name: Configure replication source
+          community.mysql.mysql_replication:
+            mode: changeprimary
+            primary_host: "{{ hostvars[mariadb_primary_host].ansible_host }}"
+            primary_port: "{{ mariadb_port | default(3306) }}"
+            primary_user: "{{ mariadb_repl_user }}"
+            primary_password: "{{ mariadb_repl_pw }}"
+            primary_use_gtid: replica_pos   # module rename of slave_pos in community.mysql 3.x
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        - name: Start replica
+          community.mysql.mysql_replication:
+            mode: startreplica
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        - name: Remove staged dump from controller
+          ansible.builtin.file:
+            path: "{{ mariadb_dump_staging }}"
+            state: absent
+          delegate_to: localhost
+          become: no
+
+  #################################################################
+  # Verify replication health (runs every play so the user always sees state).
+    - name: Read replication status after configuration
+      community.mysql.mysql_replication:
+        mode: getreplica
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      register: replica_status_post
+
+    - name: Show key replication state
+      ansible.builtin.debug:
+        msg:
+          - "Is_Replica:            {{ replica_status_post.Is_Replica | default(false) }}"
+          - "Replica_IO_Running:    {{ replica_status_post.Slave_IO_Running | default('?') }}"
+          - "Replica_SQL_Running:   {{ replica_status_post.Slave_SQL_Running | default('?') }}"
+          - "Seconds_Behind_Master: {{ replica_status_post.Seconds_Behind_Master | default('?') }}"
+          - "Using_Gtid:            {{ replica_status_post.Using_Gtid | default('?') }}"
+          - "Gtid_IO_Pos:           {{ replica_status_post.Gtid_IO_Pos | default('?') }}"
+          - "Last_IO_Error:         {{ replica_status_post.Last_IO_Error | default('') }}"
+          - "Last_SQL_Error:        {{ replica_status_post.Last_SQL_Error | default('') }}"
+
+  handlers:
+    - name: restart mariadb
+      ansible.builtin.systemd:
+        name: mariadb
+        state: restarted
