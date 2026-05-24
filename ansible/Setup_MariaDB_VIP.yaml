@@ -1,0 +1,70 @@
+---
+#################################################################################
+# Setup_MariaDB_VIP.yaml
+#
+# Installs and configures Keepalived on the MariaDB pair (hosts in `databases`
+# with a `mariadb_role` set) to manage a floating VIP defined as
+# `mariadb_vip` in the inventory.
+#
+# Runs co-located with MariaDB itself — no separate VIP host needed.  Health
+# is tracked by `systemctl is-active mariadb`; a stopped or crashed mariadb
+# loses the VIP to the surviving peer.  See the template for the failover
+# design (BACKUP + nopreempt: VIP moves on failure, stays put on recovery).
+#
+# Prerequisite: Setup_MariaDB_Common.yaml (mariadb running on both hosts).
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_VIP.yaml
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_VIP.yaml --check
+#################################################################################
+- name: Install and configure Keepalived for MariaDB VIP
+  hosts: databases
+  become: yes
+  vars_files:
+    - secrets.yaml
+
+  tasks:
+
+    - name: Skip hosts that have no mariadb_role
+      ansible.builtin.meta: end_host
+      when: mariadb_role is not defined
+
+    - name: Install keepalived
+      ansible.builtin.apt:
+        name: keepalived
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    # Allow non-VIP-holding nodes to start services bound to mariadb_vip too,
+    # so HAProxy/MaxScale (if ever fronted in front of the VIP) won't fail
+    # to bind on the BACKUP node.  Cheap and well-understood toggle.
+    - name: Allow binding to non-local IPs (for clients fronting the VIP)
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_nonlocal_bind
+        value: '1'
+        state: present
+        sysctl_set: yes
+        reload: yes
+
+    - name: Deploy keepalived configuration for MariaDB VIP
+      ansible.builtin.template:
+        src: templates/keepalived.mariadb.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart keepalived
+
+    - name: Enable and start keepalived
+      ansible.builtin.systemd:
+        name: keepalived
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: restart keepalived
+      ansible.builtin.systemd:
+        name: keepalived
+        state: restarted

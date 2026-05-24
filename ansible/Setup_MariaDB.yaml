@@ -1,0 +1,23 @@
+---
+#################################################################################
+# Setup_MariaDB.yaml
+#
+# End-to-end provisioning for the MariaDB HA pair.  Imports the four
+# component playbooks in order:
+#
+#   1. Setup_MariaDB_Common.yaml   — apt install, base config, root password
+#   2. Setup_MariaDB_Primary.yaml  — binlog/GTID, replication user, seeding dump
+#   3. Setup_MariaDB_Replica.yaml  — read_only, restore dump, CHANGE MASTER, START REPLICA
+#   4. Setup_MariaDB_VIP.yaml      — Keepalived, floating mariadb_vip
+#
+# Each child playbook is idempotent and individually re-runnable, so this
+# wrapper can be re-run safely against a partially-provisioned pair.
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB.yaml
+#   ansible-playbook -i inventory.pr.yaml Setup_MariaDB.yaml
+#################################################################################
+- import_playbook: Setup_MariaDB_Common.yaml
+- import_playbook: Setup_MariaDB_Primary.yaml
+- import_playbook: Setup_MariaDB_Replica.yaml
+- import_playbook: Setup_MariaDB_VIP.yaml

@@ -1,0 +1,60 @@
+# Ansible-managed: Keepalived for the MariaDB pair
+# Deployed by Setup_MariaDB_VIP.yaml.  Runs alongside MariaDB on the same hosts;
+# the VIP defined here (mariadb_vip) floats between the primary and replica.
+#
+# Design notes:
+#  * Both nodes start as BACKUP with nopreempt.  The higher-priority node
+#    (the primary) wins the initial election and holds the VIP.
+#  * If the holder's mariadb service dies, chk_mariadb lowers its priority
+#    by `weight` and the other node takes over.
+#  * `nopreempt` keeps the VIP put after a takeover — recovering the original
+#    primary will not snatch the VIP back automatically.  Failback is a
+#    deliberate, manual operation (because it requires also flipping
+#    read_only and confirming GTID positions on both sides).
+
+global_defs {
+    router_id {{ ansible_hostname }}
+    script_user root
+    enable_script_security
+}
+
+# Health check: mariadb must be active per systemd.  Lightweight, no DB auth.
+vrrp_script chk_mariadb {
+    script "/usr/bin/systemctl is-active --quiet mariadb"
+    interval 2
+    weight  -20    # negative weight: failures reduce priority, triggers failover
+    fall    2      # require 2 consecutive failures before deciding "down"
+    rise    2      # require 2 consecutive successes before deciding "up"
+}
+
+vrrp_instance VI_MDB {
+    state                BACKUP
+
+    interface            {{ keepalived_interface | default(ansible_default_ipv4.interface) }}
+
+    # Unique on this broadcast domain.  lb keepalived uses 51 and 52.
+    virtual_router_id    53
+
+    # Primary host starts higher so it wins the initial election.
+    priority             {% if mariadb_role == 'primary' %}150{% else %}100{% endif %}
+
+
+    # Both nodes nopreempt: once the VIP moves, it stays moved until an
+    # operator decides to fail back.
+    nopreempt
+
+    advert_int           1
+
+    authentication {
+        auth_type        PASS
+        auth_pass        {{ keepalived_vrrp_password }}
+    }
+
+    virtual_ipaddress {
+        {{ mariadb_vip }}/32
+    }
+
+    track_script {
+        chk_mariadb
+    }
+}

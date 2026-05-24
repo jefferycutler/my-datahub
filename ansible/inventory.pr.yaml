@@ -123,6 +123,7 @@ all:
     databases:
       vars:
         zagent: true
+        mariadb_vip: 192.168.30.15
       hosts:
         mdb1:
           ansible_host: 192.168.30.13

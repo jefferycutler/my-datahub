@@ -152,6 +152,12 @@
             primary_user: "{{ mariadb_repl_user }}"
             primary_password: "{{ mariadb_repl_pw }}"
             primary_use_gtid: replica_pos   # module rename of slave_pos in community.mysql 3.x
+            # MariaDB 11.x auto-generates a runtime self-signed cert and offers
+            # TLS by default.  With no PKI in this env, an unverified cert is
+            # what we'd get anyway — set ssl=false to keep behavior explicit and
+            # predictable.  Flip back to true and add cert paths once a CA is
+            # in place.
+            primary_ssl: false
             login_unix_socket: /var/run/mysqld/mysqld.sock
 
         - name: Start replica
