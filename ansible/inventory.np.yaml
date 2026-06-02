@@ -57,6 +57,7 @@ all:
     databases:
       vars:
         mariadb_vip: 192.168.20.15 
+        mariadb_buffer_pool_size: "1400M"
       hosts:
         tmdb1:
           ansible_host: 192.168.20.13

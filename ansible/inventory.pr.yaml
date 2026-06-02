@@ -124,6 +124,7 @@ all:
       vars:
         zagent: true
         mariadb_vip: 192.168.30.15
+        mariadb_buffer_pool_size: "2G"
       hosts:
         mdb1:
           ansible_host: 192.168.30.13
@@ -133,4 +134,5 @@ all:
           ansible_host: 192.168.30.14
           architecture: aarch64
           mariadb_role: replica
+          mariadb_buffer_pool_size: "4G"
     
