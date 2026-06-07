@@ -1,0 +1,129 @@
+# k8s/charts/airflow/values.yaml
+#
+# Apache Airflow — Helm chart values
+# Chart: apache-airflow/airflow  (https://airflow.apache.org/docs/helm-chart/)
+#
+# External database: MariaDB HA pair via Keepalived VIP (192.168.30.10:3306).
+# No bundled postgres/mysql — set postgresql.enabled and redis.enabled
+# appropriately for your executor choice.
+#
+# Secrets NOT stored here; they live in a pre-created Kubernetes Secret
+# "airflow-db-credentials" with keys:
+#   connection  — full SQLAlchemy URI (see below)
+#
+# Create the secret before deploying:
+#   kubectl create secret generic airflow-db-credentials \
+#     --namespace airflow \
+#     --from-literal=connection='mysql+mysqldb://airflow:<pw>@192.168.30.10:3306/airflow'
+
+# ── Executor ──────────────────────────────────────────────────────────────────
+# KubernetesExecutor runs each task as its own pod — no Redis/Celery needed.
+# Switch to CeleryExecutor later if you want a worker pool.
+executor: KubernetesExecutor
+
+# ── Images ────────────────────────────────────────────────────────────────────
+images:
+  airflow:
+    repository: apache/airflow
+    tag: "2.9.2"          # pin; don't let this float
+    pullPolicy: IfNotPresent
+
+# ── External database ─────────────────────────────────────────────────────────
+# Disable the bundled Postgres sidecar entirely.
+postgresql:
+  enabled: false
+
+# Supply the connection string via a pre-existing Secret so the URI
+# (including password) never touches this values file.
+data:
+  metadataSecretName: airflow-db-credentials
+  # 'connection' key in that secret must be a full SQLAlchemy URI, e.g.:
+  #   mysql+mysqldb://airflow:<pw>@192.168.30.10:3306/airflow
+
+# ── Database migrations ───────────────────────────────────────────────────────
+# Run `airflow db migrate` as an init job on every helm upgrade.
+migrateDatabaseJob:
+  enabled: true
+
+# ── Webserver ─────────────────────────────────────────────────────────────────
+webserver:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  # Fernet key for encrypting connection passwords at rest.
+  # Generate once: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  # Store in a Secret and reference it here, or set via extraEnvFrom below.
+
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+scheduler:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# ── Redis (only needed for CeleryExecutor) ────────────────────────────────────
+redis:
+  enabled: false
+
+# ── Triggerer ─────────────────────────────────────────────────────────────────
+triggerer:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# ── DAG deployment ────────────────────────────────────────────────────────────
+# git-sync pulls DAGs from your repo on a short interval.
+# Swap the repo URL for your actual DAG repo.
+dags:
+  gitSync:
+    enabled: true
+    repo: https://github.com/jefferycutler/my-datahub.git
+    branch: main
+    rev: HEAD
+    depth: 1
+    maxFailures: 3
+    subPath: "airflow/dags"            
+    period: 600s  #poll github every 10 minutes for new dags
+
+# ── Fernet / webserver secret key ─────────────────────────────────────────────
+# Both live in a pre-created Secret "airflow-fernet-key":
+#   kubectl create secret generic airflow-fernet-key \
+#     --namespace airflow \
+#     --from-literal=fernet-key='<generated-key>' \
+#     --from-literal=webserver-secret-key='<random-string>'
+fernetKeySecretName: airflow-fernet-key
+webserverSecretKeySecretName: airflow-fernet-key
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  web:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - name: airflow.k8spr.area51
+        tls:
+          enabled: true
+          secretName: ""   # leave empty to use Traefik's default cert
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+
+# ── Node placement ────────────────────────────────────────────────────────────
+# Match your existing convention: Pi 4s for network-bound work, Pi 5s for compute.
+# Airflow scheduler/webserver are light — any worker node is fine.
+# Uncomment and adjust if you want to pin to specific hardware.
+# nodeSelector:
+#   hardware: pi5
