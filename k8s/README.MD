@@ -19,24 +19,19 @@ helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard
 helm repo update
 helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard \
     -n kubernetes-dashboard --create-namespace \
-    -f charts/kubernetes-dashboard/values.yaml
+    -f k8s/charts/kubernetes-dashboard/values.yaml
 ```
 
 #### Access
 1. Create Admin User (if not already done):
-   ```bash
-   kubectl apply -f dashboard-admin.yaml
-   ```
+```bash
+   kubectl apply -f k8s/charts/kubernetes-dashboard/dashboard-admin.yaml
+```
 2. Generate Token:
-   ```bash
+```bash
    kubectl -n kubernetes-dashboard create token admin-user
-   ```
-3. Port Forward:
-   ```bash
-   kubectl -n kubernetes-dashboard port-forward svc/kubernetes-dashboard-kong-proxy 8443:443
-   ```
-4. Open https://localhost:8443 and login with the token.
-
+```
+3. Open https://dashboard.k8spr.area51 and login with the token.
 
 ### 3. Kafka UI
 Install the Kafka UI:
