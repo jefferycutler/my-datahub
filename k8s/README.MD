@@ -42,3 +42,10 @@ helm upgrade --install kafka-ui kafka-ui/kafka-ui \
     -n kafka-ui --create-namespace \
     -f charts/kafka-ui/values.yaml
 ```
+
+# Airflow
+helm repo add apache-airflow https://airflow.apache.org
+helm repo update
+helm install airflow apache-airflow/airflow \
+    --namespace airflow \
+    -f k8s/charts/airflow/values.yaml

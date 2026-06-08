@@ -1,52 +1,60 @@
 # k8s/charts/airflow/values.yaml
 #
 # Apache Airflow — Helm chart values
-# Chart: apache-airflow/airflow  (https://airflow.apache.org/docs/helm-chart/)
+# Chart: apache-airflow/airflow version 1.22.0 (Airflow 3.2.2)
 #
-# External database: MariaDB HA pair via Keepalived VIP (192.168.30.10:3306).
-# No bundled postgres/mysql — set postgresql.enabled and redis.enabled
-# appropriately for your executor choice.
+# External database: MariaDB HA pair via Keepalived VIP (192.168.30.15:3306).
 #
-# Secrets NOT stored here; they live in a pre-created Kubernetes Secret
-# "airflow-db-credentials" with keys:
-#   connection  — full SQLAlchemy URI (see below)
+# Pre-requisite Kubernetes secrets (create before helm install):
 #
-# Create the secret before deploying:
-#   kubectl create secret generic airflow-db-credentials \
-#     --namespace airflow \
-#     --from-literal=connection='mysql+mysqldb://airflow:<pw>@192.168.30.10:3306/airflow'
+#   1. airflow-db-credentials
+#      kubectl create secret generic airflow-db-credentials \
+#        --namespace airflow \
+#        --from-literal=connection='mysql+mysqldb://airflow:<pw>@192.168.30.15:3306/airflow'
+#
+#   2. airflow-fernet-key
+#      kubectl create secret generic airflow-fernet-key \
+#        --namespace airflow \
+#        --from-literal=fernet-key='<generated-fernet-key>'
+#
+# Generate fernet key:
+#   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-# ── Executor ──────────────────────────────────────────────────────────────────
-# KubernetesExecutor runs each task as its own pod — no Redis/Celery needed.
-# Switch to CeleryExecutor later if you want a worker pool.
-executor: KubernetesExecutor
+# ── Airflow version ───────────────────────────────────────────────────────────
+airflowVersion: "3.2.2"
 
 # ── Images ────────────────────────────────────────────────────────────────────
 images:
   airflow:
     repository: apache/airflow
-    tag: "2.9.2"          # pin; don't let this float
+    tag: "3.2.2"
     pullPolicy: IfNotPresent
 
+# ── Executor ──────────────────────────────────────────────────────────────────
+executor: KubernetesExecutor
+
 # ── External database ─────────────────────────────────────────────────────────
-# Disable the bundled Postgres sidecar entirely.
+# Disable the bundled PostgreSQL pod entirely.
 postgresql:
   enabled: false
 
-# Supply the connection string via a pre-existing Secret so the URI
-# (including password) never touches this values file.
+# Connection string via pre-existing Secret — password never touches this file.
 data:
   metadataSecretName: airflow-db-credentials
-  # 'connection' key in that secret must be a full SQLAlchemy URI, e.g.:
-  #   mysql+mysqldb://airflow:<pw>@192.168.30.10:3306/airflow
+
+# ── Fernet key ────────────────────────────────────────────────────────────────
+fernetKeySecretName: airflow-fernet-key
 
 # ── Database migrations ───────────────────────────────────────────────────────
-# Run `airflow db migrate` as an init job on every helm upgrade.
 migrateDatabaseJob:
   enabled: true
 
-# ── Webserver ─────────────────────────────────────────────────────────────────
-webserver:
+# ── Redis (CeleryExecutor only) ───────────────────────────────────────────────
+redis:
+  enabled: false
+
+# ── API Server (replaces webserver in Airflow 3.x) ───────────────────────────
+apiServer:
   replicas: 1
   resources:
     requests:
@@ -55,10 +63,6 @@ webserver:
     limits:
       cpu: 500m
       memory: 1Gi
-
-  # Fernet key for encrypting connection passwords at rest.
-  # Generate once: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-  # Store in a Secret and reference it here, or set via extraEnvFrom below.
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 scheduler:
@@ -71,10 +75,6 @@ scheduler:
       cpu: 500m
       memory: 1Gi
 
-# ── Redis (only needed for CeleryExecutor) ────────────────────────────────────
-redis:
-  enabled: false
-
 # ── Triggerer ─────────────────────────────────────────────────────────────────
 triggerer:
   enabled: true
@@ -84,9 +84,7 @@ triggerer:
       cpu: 100m
       memory: 256Mi
 
-# ── DAG deployment ────────────────────────────────────────────────────────────
-# git-sync pulls DAGs from your repo on a short interval.
-# Swap the repo URL for your actual DAG repo.
+# ── DAG deployment via git-sync ───────────────────────────────────────────────
 dags:
   gitSync:
     enabled: true
@@ -95,35 +93,26 @@ dags:
     rev: HEAD
     depth: 1
     maxFailures: 3
-    subPath: "airflow/dags"            
-    period: 600s  #poll github every 10 minutes for new dags
-
-# ── Fernet / webserver secret key ─────────────────────────────────────────────
-# Both live in a pre-created Secret "airflow-fernet-key":
-#   kubectl create secret generic airflow-fernet-key \
-#     --namespace airflow \
-#     --from-literal=fernet-key='<generated-key>' \
-#     --from-literal=webserver-secret-key='<random-string>'
-fernetKeySecretName: airflow-fernet-key
-webserverSecretKeySecretName: airflow-fernet-key
+    subPath: "airflow/dags"
+    period: 300s    # 5 min — polite to GitHub, fine for non-time-critical DAG deploys
 
 # ── Ingress ───────────────────────────────────────────────────────────────────
+# Airflow 3.x uses ingress.apiServer instead of ingress.web
 ingress:
-  web:
+  apiServer:
     enabled: true
     ingressClassName: traefik
+    path: "/"
+    pathType: ImplementationSpecific
     hosts:
       - name: airflow.k8spr.area51
         tls:
           enabled: true
-          secretName: ""   # leave empty to use Traefik's default cert
+          secretName: ""    # use Traefik's default cert
+      - name: airflow.k8spr
+        tls:
+          enabled: true
+          secretName: ""    # use Traefik's default cert
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       traefik.ingress.kubernetes.io/router.tls: "true"
-
-# ── Node placement ────────────────────────────────────────────────────────────
-# Match your existing convention: Pi 4s for network-bound work, Pi 5s for compute.
-# Airflow scheduler/webserver are light — any worker node is fine.
-# Uncomment and adjust if you want to pin to specific hardware.
-# nodeSelector:
-#   hardware: pi5

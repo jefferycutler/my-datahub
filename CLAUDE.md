@@ -77,7 +77,7 @@ Floating VIPs managed by Keepalived on the `lb` group:
 
 - `192.168.30.100` — K3s API (and HTTP/HTTPS ingress via NodePort backends)
 - `192.168.30.101` — syslog ingest (TCP 514 → rsyslog → Kafka)
-- `192.168.30.10` — MariaDB (MaxScale, planned)
+- `192.168.30.15` — MariaDB (MaxScale, deployed) managed on mdb1 and mdb2 not lb's
 
 HAProxy on each LB node fronts these VIPs. lb01 is the default master for the
 K3s VIP; lb02 for the syslog VIP — spreads the active load.
