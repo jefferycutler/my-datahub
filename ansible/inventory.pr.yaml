@@ -130,9 +130,10 @@ all:
           ansible_host: 192.168.30.13
           architecture: x86_64
           mariadb_role: primary
+          mariadb_buffer_pool_size: "8G"
         mdb2:
           ansible_host: 192.168.30.14
           architecture: aarch64
           mariadb_role: replica
-          mariadb_buffer_pool_size: "4G"
+          mariadb_buffer_pool_size: "6G"
     
