@@ -1,0 +1,6 @@
+# Ansible-managed: systemd timer drop-in to pin apt upgrades to a per-host day
+# Day is set via auto_patch_day in the inventory (e.g. Fri, Sat, Sun)
+[Timer]
+OnCalendar=
+OnCalendar={{ auto_patch_day }} *-*-* 06:00
+RandomizedDelaySec=30m

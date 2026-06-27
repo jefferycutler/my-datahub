@@ -7,6 +7,7 @@ all:
     dns_servers:
       - 1.1.1.1
       - 8.8.8.8
+    auto_patch_day: Fri
 
   children:
     # Kubernetes cluster nodes (control plane and workers).
@@ -24,12 +25,15 @@ all:
         k801:
           rpi_model: pi5
           ansible_host: 192.168.30.31
+          auto_patch_day: Fri
         k802:
           rpi_model: pi5
           ansible_host: 192.168.30.32
+          auto_patch_day: Sat
         k803:
           rpi_model: pi5
           ansible_host: 192.168.30.33
+          auto_patch_day: Sun
 
     # Kubernetes worker nodes.
     k8work:
@@ -40,33 +44,43 @@ all:
         k804:
           rpi_model: pi4
           ansible_host: 192.168.30.34
+          auto_patch_day: Fri
         k805:
           rpi_model: pi4
           ansible_host: 192.168.30.35
+          auto_patch_day: Sat
         k806:
           rpi_model: pi4
           ansible_host: 192.168.30.36
+          auto_patch_day: Sun
         k807:
           rpi_model: pi4
           ansible_host: 192.168.30.37
+          auto_patch_day: Mon
         k808:
           rpi_model: pi5
           ansible_host: 192.168.30.38
+          auto_patch_day: Tue
         k809:
           rpi_model: pi5
           ansible_host: 192.168.30.39
+          auto_patch_day: Wed
         k810:
           rpi_model: pi5
           ansible_host: 192.168.30.40
+          auto_patch_day: Thu
         k811:
           rpi_model: pi5
           ansible_host: 192.168.30.41
+          auto_patch_day: Fri
         k812:
           rpi_model: pi5
           ansible_host: 192.168.30.42
+          auto_patch_day: Sat
         k813:
           rpi_model: pi5
           ansible_host: 192.168.30.43
+          auto_patch_day: Sun
 
     # Kafka cluster nodes.
     kafka:
@@ -80,15 +94,19 @@ all:
         kf1:
           ansible_host: 192.168.30.51
           kafka_is_controller: true
+          auto_patch_day: Fri
         kf2:
           ansible_host: 192.168.30.52
           kafka_is_controller: true
+          auto_patch_day: Sat
         kf3:
           ansible_host: 192.168.30.53
           kafka_is_controller: true
+          auto_patch_day: Sun
         kf4:
           ansible_host: 192.168.30.54
           kafka_is_controller: false
+          auto_patch_day: Mon
 
     # Load balancer nodes.
     lb:
@@ -98,10 +116,13 @@ all:
       hosts:
         lb01:
           ansible_host: 192.168.30.21
+          auto_patch_day: Fri
         lb02:
           ansible_host: 192.168.30.22
+          auto_patch_day: Sat
         lb03:
           ansible_host: 192.168.30.23
+          auto_patch_day: Sun
 
     # Zabbix monitoring host.
     zabbix:
@@ -109,6 +130,7 @@ all:
         zbx01:
           ansible_host: 192.168.30.11
           architecture: aarch64
+          auto_patch_day: Sat
 
     # Container registry management
     registry:
@@ -118,6 +140,7 @@ all:
         harbor:
           ansible_host: 192.168.30.12
           architecture: x86_64
+          auto_patch_day: Sun
 
     # Databases and data stores
     databases:
@@ -131,9 +154,11 @@ all:
           architecture: x86_64
           mariadb_role: primary
           mariadb_buffer_pool_size: "8G"
+          auto_patch_day: Fri
         mdb2:
           ansible_host: 192.168.30.14
           architecture: aarch64
           mariadb_role: replica
           mariadb_buffer_pool_size: "6G"
+          auto_patch_day: Sat
     
