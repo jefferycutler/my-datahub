@@ -84,6 +84,13 @@ triggerer:
       cpu: 100m
       memory: 256Mi
 
+# ── Logs & Storage Ephemeral Tuning ──────────────────────────────────────────
+logs:
+  persistence:
+    enabled: false
+  # This isolates the mount structure so the cleaning loop doesn't hit a busy root device
+  subPath: "airflow-logs-sub"
+
 # ── DAG deployment via git-sync ───────────────────────────────────────────────
 dags:
   gitSync:
