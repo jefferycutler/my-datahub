@@ -72,8 +72,8 @@ scheduler:
       cpu: 200m
       memory: 512Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 1500m
+      memory: 1.5Gi
 
 # ── Triggerer ─────────────────────────────────────────────────────────────────
 triggerer:
@@ -85,11 +85,11 @@ triggerer:
       memory: 256Mi
 
 # ── Logs & Storage Ephemeral Tuning ──────────────────────────────────────────
+# persistence.enabled: false means each pod gets its own emptyDir for /opt/airflow/logs,
+# so there's no shared/busy root device to isolate against — no subPath needed.
 logs:
   persistence:
     enabled: false
-  # This isolates the mount structure so the cleaning loop doesn't hit a busy root device
-  subPath: "airflow-logs-sub"
 
 # ── DAG deployment via git-sync ───────────────────────────────────────────────
 dags:
