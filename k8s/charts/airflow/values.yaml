@@ -63,6 +63,13 @@ apiServer:
     limits:
       cpu: 500m
       memory: 1Gi
+  extraVolumes:
+    - name: datafiles
+      persistentVolumeClaim:
+        claimName: datafiles-nfs-pvc
+  extraVolumeMounts:
+    - name: datafiles
+      mountPath: /opt/airflow/datafiles
 
 # ── Scheduler ─────────────────────────────────────────────────────────────────
 scheduler:
@@ -74,6 +81,13 @@ scheduler:
     limits:
       cpu: 1500m
       memory: 1.5Gi
+  extraVolumes:
+    - name: datafiles
+      persistentVolumeClaim:
+        claimName: datafiles-nfs-pvc
+  extraVolumeMounts:
+    - name: datafiles
+      mountPath: /opt/airflow/datafiles      
 
 # ── Triggerer ─────────────────────────────────────────────────────────────────
 triggerer:
@@ -83,6 +97,16 @@ triggerer:
     requests:
       cpu: 100m
       memory: 256Mi
+
+workers:
+  kubernetes:
+    extraVolumes:
+      - name: datafiles
+        persistentVolumeClaim:
+          claimName: datafiles-nfs-pvc
+    extraVolumeMounts:
+      - name: datafiles
+        mountPath: /opt/airflow/datafiles      
 
 # ── Logs & Storage Ephemeral Tuning ──────────────────────────────────────────
 # persistence.enabled: false means each pod gets its own emptyDir for /opt/airflow/logs,

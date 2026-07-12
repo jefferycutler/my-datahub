@@ -1,0 +1,49 @@
+# Static PV + PVC for the area51nas1 NFS-backed "datafiles" share.
+#
+# Backing dataset: /mnt/datahub/datafiles on area51nas1 (TrueNAS)
+# NFS export uses Mapall -> datahub:datahub (UID 3002 / GID 3001), so every
+# client (pods here, laptop, NAS-side cron) writes as the same identity
+# regardless of local UID. Dataset mode is 770.
+#
+# This is a *static* PV (no StorageClass/provisioner) since TrueNAS isn't
+# running a CSI provisioner for this share -- the kernel NFS client on each
+# k3s node mounts it directly, same mechanism as the laptop test.
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: datafiles-nfs-pv
+  labels:
+    app: datafiles
+spec:
+  capacity:
+    storage: 100Gi         # nominal only -- NFS doesn't enforce quota via k8s;
+                           # actual TrueNAS dataset caps out around 161Gi.
+                           # For a real enforced ceiling, set a dataset quota
+                           # on TrueNAS itself rather than relying on this value.
+  accessModes:
+    - ReadWriteMany        # NFS supports concurrent multi-pod read/write
+  persistentVolumeReclaimPolicy: Retain   # never let k8s delete the NFS data
+  mountOptions:
+    - nfsvers=4.2
+    - hard
+    - timeo=600
+    - retrans=2
+  nfs:
+    server: area51nas1
+    path: /mnt/datahub/datafiles
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: datafiles-nfs-pvc
+  namespace: airflow
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""     # required for static binding -- prevents a default
+                            # StorageClass from trying to dynamically provision
+  resources:
+    requests:
+      storage: 100Gi         # must be <= PV capacity above
+  volumeName: datafiles-nfs-pv

@@ -77,7 +77,9 @@ Floating VIPs managed by Keepalived on the `lb` group:
 
 - `192.168.30.100` — K3s API (and HTTP/HTTPS ingress via NodePort backends)
 - `192.168.30.101` — syslog ingest (TCP 514 → rsyslog → Kafka)
-- `192.168.30.15` — MariaDB (MaxScale, deployed) managed on mdb1 and mdb2 not lb's
+- `192.168.30.15` — MariaDB (MaxScale, deployed) managed on mdb1 and mdb2 not lb's.
+  Running MariaDB **12.3 LTS** (upgraded from 11.8 via MariaDB's own apt repo,
+  not Debian's default — see gotcha below).
 
 HAProxy on each LB node fronts these VIPs. lb01 is the default master for the
 K3s VIP; lb02 for the syslog VIP — spreads the active load.
@@ -108,6 +110,29 @@ Kafka topic `envsensor-pr` → `envsense-bq-writer` pod → BigQuery
 
 Kafka is intentionally in the middle as a buffer for cloud/internet outages.
 
+### Airflow — NFS-backed shared data volume
+
+`datafiles-nfs-pv` / `datafiles-nfs-pvc` (namespace `airflow`) is a **static**
+PV/PVC backed by a TrueNAS NFS export (`area51nas1:/mnt/datahub/datafiles`),
+mounted at `/opt/airflow/datafiles` on scheduler, apiServer, and
+KubernetesExecutor task pods. No CSI provisioner involved — plain kernel NFS
+client, same mechanism whether it's a k3s pod, a dev laptop, or a NAS-side
+cron job.
+
+Identity model: the NFS export uses **Mapall** (User/Group both `datahub`,
+UID 3002 / GID 3001). This rewrites *every* connecting client's identity to
+that UID:GID server-side, regardless of what UID the client actually
+presents — root on a laptop, an Airflow pod running as UID 50000, doesn't
+matter. Confirmed working consistently across all three. This means pod
+`securityContext.runAsUser` does **not** need to match 3002/3001 for the
+mount to work — Mapall already guarantees it server-side. Dataset mode on
+TrueNAS is `770`.
+
+For SMB access to the same dataset (e.g. laptop on garden wifi, untrusted
+network segment where NFS's IP-based trust is weaker), use SMB's "force
+user/group" share option pointed at the same `datahub` identity, so both
+protocols land on disk with consistent ownership.
+
 ### Kafka security
 
 The pr cluster runs **KRaft mode** with:
@@ -126,6 +151,50 @@ Templates of interest: `kafka.server.properties.j2`,
 There is also a legacy Pi-based Kafka cluster (`kafkaold` group in some
 configs) being phased out; the new Zimaboard-based pr cluster (kf1–kf4) is
 the canonical target.
+
+## Known gotchas
+
+- **Airflow's `apache-airflow/airflow` Helm chart (1.22.0) has no top-level
+  `extraVolumes`/`extraVolumeMounts`.** Each component needs its own scoped
+  copy: `scheduler.extraVolumes`, `apiServer.extraVolumes`,
+  `workers.kubernetes.extraVolumes` (KubernetesExecutor — note the
+  `workers.celery.*` / `workers.kubernetes.*` split as of a recent chart
+  version; the old flat `workers.extraVolumes` is deprecated and silently
+  ignored, not erroring). A top-level `extraVolumes:` key parses fine as
+  YAML but does nothing — Helm just ignores it. Always verify a volume
+  mount actually landed by checking the live pod spec
+  (`kubectl get pod ... -o yaml | grep -A5 <volume-name>`), not just that
+  `helm upgrade` succeeded without warnings.
+
+- **MariaDB didn't support CTEs referenced from `DELETE` until version 12.3**
+  (`MDEV-37220`, `WITH ... DELETE ... RETURNING`). Airflow 3.2.2's scheduler
+  runs a periodic asset-cleanup query using exactly that construct — it ran
+  on *every* DAG-processing cycle regardless of whether any DAGs/assets
+  existed, so it crash-looped the scheduler with a 1064 syntax error even on
+  a completely empty install. Confirmed root cause by reproducing the exact
+  captured SQL directly against `mdb1` via the `mariadb` client. Fixed by
+  upgrading MariaDB from 11.8 to 12.3 LTS via MariaDB's own apt repo
+  (`mariadb_repo_setup` script, `--mariadb-server-version=mariadb-12.3` —
+  Debian's default repo only ships 11.8 on trixie). If Airflow's scheduler
+  ever crash-loops again with a `sqlalchemy.exc.ProgrammingError` / 1064 near
+  a `DELETE`/`RETURNING`/CTE statement, suspect a MariaDB SQL-feature gap
+  first, not application logic — MariaDB isn't in Airflow's own CI test
+  matrix, so dialect-generation gaps like this can recur on future Airflow
+  upgrades too.
+
+- **`master_use_gtid` resets to default on a replica after a MariaDB major
+  version upgrade** (e.g. 11.8 → 12.3). Must be manually re-applied
+  post-upgrade (`CHANGE MASTER TO ... MASTER_USE_GTID=slave_pos` /
+  `primary_use_gtid: replica_pos` in the `community.mysql` module) or
+  replication silently falls back to non-GTID behavior. Not carried over
+  automatically by the package upgrade.
+
+- **PhotoPrism does not support PostgreSQL** (MariaDB/SQLite only, as of
+  mid-2026 — Postgres support is on their roadmap with no committed date).
+  Relevant if a "single shared database engine" plan for Airflow/Zabbix/
+  PhotoPrism is ever revisited — Postgres-for-Airflow-only would mean running
+  two separate DB engines rather than consolidating on one, since PhotoPrism
+  forces the MariaDB/SQLite choice regardless.
 
 ## Conventions for changes
 
@@ -172,45 +241,23 @@ the canonical target.
 
 ## Current work in progress
 
-### MariaDB HA pair (next)
+### MariaDB HA pair — done, superseded by Architecture highlights above
 
-Planning a primary/replica MariaDB pair across `mdb1` and `mdb2` in the
-`databases` group, GTID-based async replication, eventual MaxScale front end
-on VIP `192.168.30.10`, eventual Keepalived float between LBs.
+The planning notes that used to live here (VIP `192.168.30.10`, MaxScale,
+playbook layout) are superseded: the pair is live on `mdb1`/`mdb2` at VIP
+`192.168.30.15`, now running MariaDB 12.3 LTS. Datadir ended up on a
+dedicated NVMe (`mdb1`: Kingston NV2 1TB at `/var/lib/mysql`, `noatime`) —
+the "bind-mount vs default path" question is resolved in favor of a
+dedicated volume, as originally leaned toward. MaxScale placement (dedicated
+VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
 
-Playbook layout decided:
+### Next up
 
-- `Setup_MariaDB_Common.yaml` — apt install, base `my.cnf`, datadir, firewall,
-  server_id. Runs on both hosts in the `databases` group.
-- `Setup_MariaDB_Primary.yaml` — primary-specific config (log_bin, GTID,
-  binlog_format), replication user creation, mysqldump with `--master-data`.
-- `Setup_MariaDB_Replica.yaml` — primary-specific config (read_only,
-  relay logs), restore the primary dump, `CHANGE MASTER ... MASTER_USE_GTID`,
-  `START REPLICA`.
-- `Setup_MariaDB_HA.yaml` — wrapper that imports the three above in order.
-
-Role assignment is by explicit host var (`mariadb_role: primary` / `replica`)
-rather than positional, for clarity. Testing happens against `inventory.np.yaml`
-(mdb1/mdb2 in np) before promotion to pr.
-
-Templates planned: `mariadb.server.cnf.j2` (shared base),
-`mariadb.primary.cnf.j2` (binlog/GTID), `mariadb.replica.cnf.j2`
-(read_only, relay log settings).
-
-Secrets needed in `secrets.yaml`:
-
-- `mariadb_root_pw`
-- `mariadb_repl_user`, `mariadb_repl_pw` (the replication account)
-- Possibly `mariadb_maxscale_user`, `mariadb_maxscale_pw` later
-
-### Open architectural questions
-
-- Whether to bind-mount the datadir to a separate volume on mdb1/mdb2 or use
-  the default `/var/lib/mysql`. Probably separate volume to make future
-  TrueNAS-backed storage cleaner.
-- Whether the eventual MaxScale layer should run on the existing `lb` hosts
-  or new dedicated VMs. Leaning toward dedicated, to keep the LB tier
-  single-purpose.
+- Zabbix migration to dedicated M75q-1 Tiny node, targeting mdb1/mdb2 for
+  its externalized DB (see Zabbix intentionally running outside k3s per the
+  control-plane-independence principle).
+- `apache-airflow-providers-google` via custom Harbor-hosted image.
+- ArgoCD for GitOps sync from `k8s/`.
 
 ## How to be useful in this repo
 
