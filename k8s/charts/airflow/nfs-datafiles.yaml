@@ -30,7 +30,7 @@ spec:
     - timeo=600
     - retrans=2
   nfs:
-    server: area51nas1
+    server: 192.168.30.9
     path: /mnt/datahub/datafiles
 ---
 apiVersion: v1

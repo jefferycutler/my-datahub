@@ -61,8 +61,8 @@ apiServer:
       cpu: 200m
       memory: 512Mi
     limits:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 1500m
+      memory: 1.5Gi
   extraVolumes:
     - name: datafiles
       persistentVolumeClaim:
