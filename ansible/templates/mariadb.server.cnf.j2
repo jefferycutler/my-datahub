@@ -4,15 +4,15 @@
 
 [mysqld]
 # server_id must be unique across the replication pair.
-# Derived from the host's 1-based position in the Ansible `databases` group.
-server_id               = {{ groups['databases'].index(inventory_hostname) + 1 }}
+# Set in ansible inventory file
+server_id               = {{ mariadb_server_id }}
 
 # Listen on all interfaces so the replica and MaxScale can reach this node.
 bind-address            = 0.0.0.0
 port                    = {{ mariadb_port }}
 datadir                 = {{ mariadb_datadir }}
 # ignore lost+found folder for drives mounted directly to data dire
-ignore_db_dir           = lost+found
+ignore_db_dirs           = lost+found
 
 # Character set / collation
 character-set-server    = utf8mb4

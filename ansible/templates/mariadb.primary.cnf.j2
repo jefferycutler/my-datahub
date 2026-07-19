@@ -11,7 +11,7 @@ expire_logs_days        = 7
 
 # GTID-based replication.
 gtid_strict_mode        = 1
-gtid_domain_id          = {{ groups['databases'].index(inventory_hostname) + 1 }}
+gtid_domain_id          = {{ mariadb_gtid_domain_id }}
 
 # Apply replicated events to this server's own binlogs too, so the primary
 # can later be demoted to a replica during a failover without losing history.

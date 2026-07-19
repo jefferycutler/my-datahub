@@ -153,12 +153,24 @@ all:
           ansible_host: 192.168.30.13
           architecture: x86_64
           mariadb_role: primary
+          mariadb_server_id: 1
+          mariadb_gtid_domain_id: 1
           mariadb_buffer_pool_size: "8G"
           auto_patch_day: Fri
         mdb2:
           ansible_host: 192.168.30.14
           architecture: aarch64
           mariadb_role: replica
+          mariadb_server_id: 2
+          mariadb_gtid_domain_id: 2
           mariadb_buffer_pool_size: "6G"
+          auto_patch_day: Sat
+        mdb3:
+          ansible_host: 192.168.30.16
+          architecture: x86_64
+          mariadb_role: replica
+          mariadb_server_id: 3
+          mariadb_gtid_domain_id: 3
+          mariadb_buffer_pool_size: "8G"
           auto_patch_day: Sat
     

@@ -22,6 +22,6 @@ binlog_format           = ROW
 expire_logs_days        = 7
 log_slave_updates       = 1
 
-# GTID.  gtid_domain_id must be unique across the replication pair.
+# GTID. set in the ansible inventory file
 gtid_strict_mode        = 1
-gtid_domain_id          = {{ groups['databases'].index(inventory_hostname) + 1 }}
+gtid_domain_id          = {{ mariadb_gtid_domain_id }}
