@@ -22,7 +22,7 @@ global_defs {
 vrrp_script chk_mariadb {
     script "/usr/bin/systemctl is-active --quiet mariadb"
     interval 2
-    weight  -20    # negative weight: failures reduce priority, triggers failover
+    weight  -60    # negative weight: failures reduce priority, triggers failover
     fall    2      # require 2 consecutive failures before deciding "down"
     rise    2      # require 2 consecutive successes before deciding "up"
 }
