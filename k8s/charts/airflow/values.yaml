@@ -117,6 +117,9 @@ logs:
 
 # ── DAG deployment via git-sync ───────────────────────────────────────────────
 dags:
+  persistence:
+    enabled: true
+    existingClaim: airflow-dags-nfs-pvc
   gitSync:
     enabled: true
     repo: https://github.com/jefferycutler/my-datahub.git
@@ -125,8 +128,7 @@ dags:
     depth: 1
     maxFailures: 3
     subPath: "airflow/dags"
-    period: 300s    # 5 min — polite to GitHub, fine for non-time-critical DAG deploys
-
+    period: 300s
 # ── Ingress ───────────────────────────────────────────────────────────────────
 # Airflow 3.x uses ingress.apiServer instead of ingress.web
 ingress:
