@@ -2,8 +2,6 @@
 all:
   vars:
     # Map the generic playbook variables to the PR secrets
-    harbor_user: "{{ harbor_pr_user }}"
-    harbor_password: "{{ harbor_pr_password }}"
     dns_servers:
       - 1.1.1.1
       - 8.8.8.8
@@ -21,6 +19,7 @@ all:
       vars:
         architecture: aarch64
         zagent: true
+        k3s_service: k3s
       hosts:
         k801:
           rpi_model: pi5
@@ -40,6 +39,7 @@ all:
       vars:
         architecture: aarch64
         zagent: true
+        k3s_service: k3s-agent
       hosts:
         k804:
           rpi_model: pi4

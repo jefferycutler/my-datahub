@@ -1,54 +1,90 @@
 ---
 #################################################################################
-# Setup_K3s_registries.yaml
+# Setup_K3s_Registries.yaml
 #
-# Configures K3s to use the local Harbor registry (HTTP) on all nodes.
-# It creates the registries.yaml file and restarts the appropriate K3s services.
+# Configures K3s/containerd to authenticate to GCP Artifact Registry:
+#   northamerica-northeast2-docker.pkg.dev
+#     /cutlernet-datahub/datahub-np   (non-prod)
+#     /cutlernet-datahub/datahub-pr   (prod  - this PR cluster)
+#
+# Auth uses the service account
+#   k3s-877@cutlernet-datahub.iam.gserviceaccount.com  (Artifact Registry Reader)
+# passed to containerd as basic auth:
+#   username: _json_key_base64
+#   password: base64 of the SA JSON key  (var: gcp_ar_key_b64, in secrets.yaml)
+#
 #################################################################################
-- name: Configure K3s Registries
+- name: Configure K3s registries (GCP Artifact Registry)
   hosts: k8ctl:k8work
   become: yes
+  # Do not run on all at once, cluster cannot have all nodes start service at once
+  serial: 1
+  any_errors_fatal: true
   vars_files:
     - secrets.yaml  # things we don't want in github
 
   vars:
-    harbor_ip: "192.168.30.12"
+    ar_host: "northamerica-northeast2-docker.pkg.dev"
+
+  handlers:
+    #############################################################
+    # Only restart when registries.yaml actually changes.
+    # Control plane nodes run 'k3s'; workers run 'k3s-agent'.
+    #############################################################
+    - name: Restart K3s service
+      ansible.builtin.systemd:
+        name: "{{ k3s_service }}"
+        state: restarted
 
   tasks:
+    - name: Fail early if the Artifact Registry key is not defined
+      ansible.builtin.assert:
+        that:
+          - gcp_ar_key_b64 is defined
+          - gcp_ar_key_b64 | length > 0
+        fail_msg: "gcp_ar_key_b64 is missing from secrets.yaml"
+
     - name: Ensure K3s config directory exists
       ansible.builtin.file:
         path: /etc/rancher/k3s
         state: directory
-        mode: '0755'  
+        owner: root
+        group: root
+        mode: '0755'
+
     - name: Create K3s registries.yaml
       ansible.builtin.copy:
         dest: /etc/rancher/k3s/registries.yaml
+        owner: root
+        group: root
         mode: '0600'
         content: |
-          mirrors:
-            "{{ harbor_ip }}":
-              endpoint:
-                - "http://{{ harbor_ip }}"
           configs:
-            "{{ harbor_ip }}":
+            "{{ ar_host }}":
               auth:
-                username: "{{ harbor_user }}"
-                password: "{{ harbor_password }}"
+                username: "_json_key_base64"
+                password: "{{ gcp_ar_key_b64 }}"
+      no_log: true
+      notify: Restart K3s service
 
-    #################################################################
-    # Restart Services to apply changes
-    # Control Plane nodes run 'k3s' service
-    # Worker nodes run 'k3s-agent' service
-    #################################################################
+    #############################################################
+    # Restart now (rather than at the end of the play) so the
+    # checks below run against this node before moving to the next.
+    #############################################################
+    - name: Apply pending restart
+      ansible.builtin.meta: flush_handlers
 
-    - name: Restart K3s Service (Control Plane)
+    - name: Wait for the K3s service to be running
       ansible.builtin.systemd:
-        name: k3s
-        state: restarted
-      when: "'k8ctl' in group_names"
+        name: "{{ k3s_service }}"
+      register: k3s_state
+      until: k3s_state.status.ActiveState == 'active'
+      retries: 12
+      delay: 5
 
-    - name: Restart K3s Agent Service (Workers)
-      ansible.builtin.systemd:
-        name: k3s-agent
-        state: restarted
-      when: "'k8work' in group_names"
+    - name: Wait for the API server to accept connections (control plane only)
+      ansible.builtin.wait_for:
+        port: 6443
+        host: "{{ ansible_host }}"
+        timeout: 120
+      when: "'k8ctl' in group_names"      
