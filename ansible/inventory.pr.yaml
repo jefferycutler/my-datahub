@@ -132,16 +132,6 @@ all:
           architecture: aarch64
           auto_patch_day: Sat
 
-    # Container registry management
-    registry:
-      vars:
-        zagent: true
-      hosts:
-        harbor:
-          ansible_host: 192.168.30.12
-          architecture: x86_64
-          auto_patch_day: Sun
-
     # Databases and data stores
     databases:
       vars:

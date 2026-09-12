@@ -37,9 +37,8 @@ Groups are named by **function**, not technology, and plural where natural:
 - `kafka` — Kafka brokers (KRaft mode, SASL_PLAINTEXT + SCRAM-SHA-512)
 - `lb` — HAProxy + Keepalived load balancers
 - `databases` — relational databases and other data stores (currently MariaDB
-  on `mdb1`/`mdb2`; named `databases` rather than `dbsys` or `rdms` to leave
+  on `mdb1`/`mdb3`; named `databases` rather than `dbsys` or `rdms` to leave
   room for future engines without renaming)
-- `registry` — Harbor container registry
 - `zabbix` — monitoring server
 
 Host vars worth knowing about:
@@ -77,7 +76,7 @@ Floating VIPs managed by Keepalived on the `lb` group:
 
 - `192.168.30.100` — K3s API (and HTTP/HTTPS ingress via NodePort backends)
 - `192.168.30.101` — syslog ingest (TCP 514 → rsyslog → Kafka)
-- `192.168.30.15` — MariaDB (MaxScale, deployed) managed on mdb1 and mdb2 not lb's.
+- `192.168.30.15` — MariaDB (MaxScale, deployed) managed on mdb1 and mdb3 not lb's.
   Running MariaDB **12.3 LTS** (upgraded from 11.8 via MariaDB's own apt repo,
   not Debian's default — see gotcha below).
 
@@ -147,10 +146,6 @@ The pr cluster runs **KRaft mode** with:
 
 Templates of interest: `kafka.server.properties.j2`,
 `kafka_server_jaas.conf.j2`, `kafka.admin.properties.j2`.
-
-There is also a legacy Pi-based Kafka cluster (`kafkaold` group in some
-configs) being phased out; the new Zimaboard-based pr cluster (kf1–kf4) is
-the canonical target.
 
 ## Known gotchas
 
@@ -253,10 +248,7 @@ VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
 
 ### Next up
 
-- Zabbix migration to dedicated M75q-1 Tiny node, targeting mdb1/mdb2 for
-  its externalized DB (see Zabbix intentionally running outside k3s per the
-  control-plane-independence principle).
-- `apache-airflow-providers-google` via custom Harbor-hosted image.
+- `apache-airflow-providers-google` via custom image in Googel artifact registry.
 - ArgoCD for GitOps sync from `k8s/`.
 
 ## How to be useful in this repo
