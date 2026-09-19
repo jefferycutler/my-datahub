@@ -78,7 +78,6 @@ BQ_SCHEMA = [
     ("DECIMALS", "INT64"),
     ("load_date", "DATE"),
 ]
-BQ_CLUSTER_FIELDS = ["GEO", "PRODUCT_GROUP", "REF_DATE"]
 
 default_args = {
     "retries": 2,
@@ -155,7 +154,13 @@ def statscan_cpi_dag():
 
     @task
     def load_to_bigquery(csv_path: str) -> int:
-        """Truncate-and-load the transformed CSV into the BQ table."""
+        """Replace the BQ table's rows with the transformed CSV.
+
+        WRITE_TRUNCATE_DATA swaps the data atomically but keeps the table's
+        existing schema, clustering, and description (the DDL stays the source
+        of truth). CREATE_NEVER means the job fails if the table is missing
+        rather than creating one -- the SA deliberately lacks tables.create.
+        """
         # Imported here to keep DAG-file parsing fast on the scheduler
         from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
         from google.cloud import bigquery
@@ -167,8 +172,8 @@ def statscan_cpi_dag():
             source_format=bigquery.SourceFormat.CSV,
             skip_leading_rows=1,
             schema=[bigquery.SchemaField(name, type_) for name, type_ in BQ_SCHEMA],
-            clustering_fields=BQ_CLUSTER_FIELDS,
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+            create_disposition=bigquery.CreateDisposition.CREATE_NEVER,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE_DATA,
         )
         with open(csv_path, "rb") as fh:
             job = client.load_table_from_file(fh, BQ_TABLE, job_config=job_config)
