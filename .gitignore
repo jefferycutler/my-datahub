@@ -5,3 +5,10 @@
 ansible/secrets.yaml
 ansible/secrets.pr.yaml
 ansible/secrets.np.yaml
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# GCP service account keys
+*-key.json

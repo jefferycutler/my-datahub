@@ -17,6 +17,11 @@
 #        --namespace airflow \
 #        --from-literal=fernet-key='<generated-fernet-key>'
 #
+#   3. airflow-gcp-sa  (JSON key for k3s-airflow@cutlernet-datahub.iam.gserviceaccount.com)
+#      kubectl create secret generic airflow-gcp-sa \
+#        --namespace airflow \
+#        --from-file=key.json=./k3s-airflow-key.json
+#
 # Generate fernet key:
 #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
@@ -44,6 +49,14 @@ data:
 
 # ── Fernet key ────────────────────────────────────────────────────────────────
 fernetKeySecretName: airflow-fernet-key
+
+# ── GCP connection ────────────────────────────────────────────────────────────
+# Defines the `google_cloud_default` connection via env var (not stored in the
+# metadata DB, not shown in the UI). key_path points at the airflow-gcp-sa
+# Secret, which is only mounted into task pods (workers.kubernetes below).
+env:
+  - name: AIRFLOW_CONN_GOOGLE_CLOUD_DEFAULT
+    value: '{"conn_type": "google_cloud_platform", "extra": {"key_path": "/opt/airflow/secrets/gcp/key.json", "project": "cutlernet-datahub"}}'
 
 # ── Database migrations ───────────────────────────────────────────────────────
 migrateDatabaseJob:
@@ -104,9 +117,15 @@ workers:
       - name: datafiles
         persistentVolumeClaim:
           claimName: datafiles-nfs-pvc
+      - name: gcp-sa
+        secret:
+          secretName: airflow-gcp-sa
     extraVolumeMounts:
       - name: datafiles
-        mountPath: /opt/airflow/datafiles      
+        mountPath: /opt/airflow/datafiles
+      - name: gcp-sa
+        mountPath: /opt/airflow/secrets/gcp
+        readOnly: true
 
 # ── Logs & Storage Ephemeral Tuning ──────────────────────────────────────────
 # persistence.enabled: false means each pod gets its own emptyDir for /opt/airflow/logs,
