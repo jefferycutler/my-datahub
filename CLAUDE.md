@@ -250,6 +250,14 @@ VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
 
 - `apache-airflow-providers-google` via custom image in Googel artifact registry.
 - ArgoCD for GitOps sync from `k8s/`.
+- `Setup_VictoriaLogs.yaml` playbook to deploy VictoriaLogs to a VM on the
+  TrueNAS host — log sink for free-text search, chosen over Loki (no UI
+  without Grafana) and Splunk Free (no auth, 500 MB/day, x86 only).
+  Single Go binary, local disk only (no object store); data path wants a
+  block device (TrueNAS zvol over iSCSI), never an NFS/SMB export. Being
+  trialled manually on a VirtualBox VM first; a `logs` inventory group and
+  `tvl01` host get added when the playbook is written. BigQuery stays the
+  archive; k8s pod logs via a Fluent Bit DaemonSet are a later phase.
 
 ## How to be useful in this repo
 
