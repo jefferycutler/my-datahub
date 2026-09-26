@@ -155,4 +155,11 @@ all:
           mariadb_gtid_domain_id: 3
           mariadb_buffer_pool_size: "8G"
           auto_patch_day: Sat
-    
+
+    # Zabbix monitoring host.
+    mcp:
+      hosts:
+        mcp-gate01:
+          ansible_host: 192.168.30.60
+          architecture: aarch64
+          auto_patch_day: Fri
