@@ -1,18 +1,22 @@
 """
-Airflow DAG: StatsCan GDP (table 36-10-0434) monthly full-table download.
+Airflow DAG: StatsCan Employment and Average Weekly Earnings (table 14-10-0223) monthly full-table
+download.
 
 Fetches the latest "full table" bulk export for Statistics Canada table
-36-10-0434 (Gross domestic product (GDP) at basic prices, by industry,
-monthly) via the WDS `getFullTableDownloadCSV` endpoint and saves the raw
-archive, unmodified, to the NFS-backed "datafiles" PV mounted into worker
-pods at /opt/airflow/datafiles (see k8s/charts/airflow/values.yaml ->
-workers.kubernetes.extraVolumeMounts, backed by nfs-datafiles.yaml).
+14-10-0223 (Employment and Average Weekly Earnings) via the WDS `getFullTableDownloadCSV`
+endpoint and saves the raw archive, unmodified, to the NFS-backed
+"datafiles" PV mounted into worker pods at /opt/airflow/datafiles (see
+k8s/charts/airflow/values.yaml -> workers.kubernetes.extraVolumeMounts,
+backed by nfs-datafiles.yaml).
 
 The zip is then unpacked and the data CSV reshaped for BigQuery (REF_DATE
 "YYYY-MM" -> "YYYY-MM-01", load_date appended), and truncate-loaded into
-cutlernet-datahub.privatena2.statcan_gdp_36100434 (DDL in
-gcp/BQDDL/statscan_gdp_36100434_ddl.sql). Credentials come from the
+cutlernet-datahub.privatena2.statcan_emp_earnings_14100223 (DDL in
+gcp/BQDDL/statcan_emp_earnings_14100223_ddl.sql). Credentials come from the
 `google_cloud_default` Airflow connection (see k8s/charts/airflow/values.yaml).
+
+Runs on a fixed cron (0 0 1 * *) rather than "@monthly": StatCan releases fall on the 24th-30th, so run on the 1st
+(08:30 ET), so the run lands the day after the latest observed release.
 
 Note: the WDS full-table endpoint returns a ZIP archive (not gzip)
 containing the data CSV plus a separate "...MetaData.csv" file. See:
@@ -33,9 +37,9 @@ from airflow.sdk import dag, task
 
 logger = logging.getLogger(__name__)
 
-# StatsCan product ID for table 36-10-0434 (dashes stripped, first 8 digits,
+# StatsCan product ID for table 14-10-0223 (dashes stripped, first 8 digits,
 # no "-01" suffix -- that's the default view, not part of the product ID).
-PRODUCT_ID = "36100434"
+PRODUCT_ID = "14100223"
 LANGUAGE = "en"
 WDS_API_URL = (
     "https://www150.statcan.gc.ca/t1/wds/rest/getFullTableDownloadCSV/"
@@ -44,29 +48,40 @@ WDS_API_URL = (
 
 # NFS PV mount path, per k8s/charts/airflow/values.yaml
 DATA_ROOT = Path("/opt/airflow/datafiles")
-OUTPUT_DIR = DATA_ROOT / "statscan" / "36-10-0434-GDP"
+OUTPUT_DIR = DATA_ROOT / "statscan" / "14-10-0223-EMP-EARNINGS"
 
-# Data CSV inside the zip (the other member is "36100434_MetaData.csv").
+# Data CSV inside the zip (the other member is "14100223_MetaData.csv").
 DATA_CSV_NAME = f"{PRODUCT_ID}.csv"
 SOURCE_COLUMNS = [
-    "REF_DATE", "GEO", "DGUID", "Seasonal adjustment", "Prices",
-    "North American Industry Classification System (NAICS)", "UOM",
-    "UOM_ID", "SCALAR_FACTOR", "SCALAR_ID", "VECTOR", "COORDINATE", "VALUE",
-    "STATUS", "SYMBOL", "TERMINATED", "DECIMALS",
+    "REF_DATE",
+    "GEO",
+    "DGUID",
+    "Estimate",
+    "North American Industry Classification System (NAICS)",
+    "UOM",
+    "UOM_ID",
+    "SCALAR_FACTOR",
+    "SCALAR_ID",
+    "VECTOR",
+    "COORDINATE",
+    "VALUE",
+    "STATUS",
+    "SYMBOL",
+    "TERMINATED",
+    "DECIMALS",
 ]
 
-# BigQuery target -- schema mirrors gcp/BQDDL/statscan_gdp_36100434_ddl.sql,
+# BigQuery target -- schema mirrors gcp/BQDDL/statcan_emp_earnings_14100223_ddl.sql,
 # in the same column order as the transformed CSV.
 GCP_CONN_ID = "google_cloud_default"
 GCP_PROJECT = "cutlernet-datahub"
 BQ_LOCATION = "northamerica-northeast2"
-BQ_TABLE = f"{GCP_PROJECT}.privatena2.statcan_gdp_36100434"
+BQ_TABLE = f"{GCP_PROJECT}.privatena2.statcan_emp_earnings_14100223"
 BQ_SCHEMA = [
     ("REF_DATE", "DATE"),
     ("GEO", "STRING"),
     ("DGUID", "STRING"),
-    ("SEASONAL_ADJ", "STRING"),
-    ("PRICES", "STRING"),
+    ("ESTIMATE", "STRING"),
     ("NAICS", "STRING"),
     ("UOM", "STRING"),
     ("UOM_ID", "INT64"),
@@ -89,16 +104,16 @@ default_args = {
 
 
 @dag(
-    dag_id="statscan_gdp_36100434_monthly",
-    description="Download StatsCan GDP (table 36-10-0434) monthly and load to BigQuery",
-    schedule="@monthly",
+    dag_id="statcan_emp_earnings_14100223_monthly",
+    description="Download StatsCan Employment and Average Weekly Earnings (table 14-10-0223) monthly and load to BigQuery",
+    schedule="0 0 1 * *",  # releases fall on the 24th-30th, so run on the 1st
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
     default_args=default_args,
-    tags=["statscan", "gdp", "ingestion", "bigquery"],
+    tags=["statscan", "emp_earnings", "ingestion", "bigquery"],
 )
-def statscan_gdp_dag():
+def statcan_emp_earnings_dag():
 
     @task
     def download_full_table() -> str:
@@ -113,15 +128,15 @@ def statscan_gdp_dag():
         zip_url = payload["object"]
         logger.info("Resolved full-table download URL: %s", zip_url)
 
-        zip_resp = requests.get(zip_url, timeout=120)
+        zip_resp = requests.get(zip_url, timeout=300)
         zip_resp.raise_for_status()
 
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         run_stamp = datetime.utcnow().strftime("%Y%m%d")
-        dest = OUTPUT_DIR / f"36100434_{run_stamp}.zip"
+        dest = OUTPUT_DIR / f"14100223_{run_stamp}.zip"
         dest.write_bytes(zip_resp.content)
 
-        logger.info("Wrote GDP archive to %s", dest)
+        logger.info("Wrote Employment and Average Weekly Earnings archive to %s", dest)
         return str(dest)
 
     @task
@@ -191,4 +206,4 @@ def statscan_gdp_dag():
     load_to_bigquery(extract_csv(download_full_table()))
 
 
-statscan_gdp_dag()
+statcan_emp_earnings_dag()
