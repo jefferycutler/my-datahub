@@ -1,0 +1,137 @@
+---
+#################################################################################
+# Shutdown_all.yaml
+#
+# Ansible playbook to gracefully power off the entire pr/np fleet in a safe
+# order:
+#   1) zabbix    - monitoring, stopped first so it doesn't alert on every
+#                  other group going down behind it
+#   2) k8work    - K3s worker nodes, stopped before the control plane
+#   3) k8ctl     - K3s control plane, stopped once workers are gone
+#   4) lb        - HAProxy/Keepalived, no longer needed once k8s is down
+#   5) kafka     - stopped once lb is down, since lb was the only path new
+#                  data (syslog relay, envsensor POSTs) had into the brokers
+#   6) mdb3      - MariaDB replica, stopped before the primary
+#   7) mdb1      - MariaDB primary, stopped last
+#
+# A pause is inserted between each group to give hosts time to finish
+# powering off before the next group is targeted. Run with --limit or
+# comment out plays if you only want to shut down part of the fleet.
+#################################################################################
+
+- name: Shut down Zabbix monitoring host
+  hosts: zabbix
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off zabbix host(s)
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after zabbix shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for zabbix host(s) to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down K3s worker nodes
+  hosts: k8work
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off k8work host(s)
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after k8work shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for k8work host(s) to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down K3s control plane nodes
+  hosts: k8ctl
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off k8ctl host(s)
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after k8ctl shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for k8ctl host(s) to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down load balancer nodes
+  hosts: lb
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off lb host(s)
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after lb shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for lb host(s) to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down Kafka brokers
+  hosts: kafka
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off kafka host(s)
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after kafka shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for kafka host(s) to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down MariaDB replica (mdb3)
+  hosts: mdb3
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off mdb3
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
+
+- name: Pause after mdb3 shutdown
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  tasks:
+    - name: Wait for mdb3 to power off
+      ansible.builtin.pause:
+        seconds: "{{ shutdown_pause_seconds | default(60) }}"
+
+- name: Shut down MariaDB primary (mdb1)
+  hosts: mdb1
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Power off mdb1
+      community.general.shutdown:
+        msg: "Shutdown initiated by Shutdown_all.yaml"
