@@ -1,0 +1,92 @@
+# Read-only MCP server (streamable HTTP on 8000).
+#
+# Secrets (create out-of-band, never committed):
+#   mcp-tokens   MCP_TOKEN_CLAUDE, MCP_TOKEN_GEMINI
+#   mcp-mariadb  MARIADB_USER, MARIADB_PW        (SELECT-only user on mdb3)
+#   mcp-kafka    KAFKA_USER, KAFKA_PW            (SCRAM; Describe + Read ACLs)
+# Image pulls use node-level containerd auth (ansible/Setup_k3s_Registries.yaml),
+# so no imagePullSecret is needed.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: mcp-server
+  labels:
+    app: mcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      labels:
+        app: mcp-server
+    spec:
+      serviceAccountName: mcp-server
+      nodeSelector:
+        hardware: pi4
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-server
+          # Multi-arch (arm64+amd64) image; not built/pushed yet.
+          image: northamerica-northeast2-docker.pkg.dev/cutlernet-datahub/datahub-pr/mcp-readonly:0.1.0
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - { name: MARIADB_HOST, value: "192.168.30.16" }
+            - { name: MARIADB_PORT, value: "3306" }
+            - name: KAFKA_BOOTSTRAP
+              value: "192.168.30.51:9092,192.168.30.52:9092,192.168.30.53:9092,192.168.30.54:9092"
+            - { name: KAFKA_SECURITY_PROTOCOL, value: "SASL_PLAINTEXT" }
+            - { name: KAFKA_SASL_MECHANISM, value: "SCRAM-SHA-512" }
+            - { name: NFS_ROOT, value: "/data/datafiles" }
+          envFrom:
+            - secretRef: { name: mcp-tokens }
+            - secretRef: { name: mcp-mariadb }
+            - secretRef: { name: mcp-kafka }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: datafiles, mountPath: /data/datafiles, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+        - name: datafiles
+          persistentVolumeClaim:
+            claimName: mcp-datafiles-nfs-pvc
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: mcp-server
+  labels:
+    app: mcp-server
+spec:
+  type: ClusterIP
+  selector:
+    app: mcp-server
+  ports:
+    - { name: http, port: 8000, targetPort: http }

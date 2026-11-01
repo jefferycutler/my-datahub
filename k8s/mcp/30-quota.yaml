@@ -1,0 +1,24 @@
+# Ceiling so a runaway or abused pod cannot starve the Pis.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: mcp-server
+  namespace: mcp-server
+spec:
+  hard:
+    pods: "4"
+    requests.cpu: "500m"
+    requests.memory: 512Mi
+    limits.cpu: "1"
+    limits.memory: 1Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mcp-server
+  namespace: mcp-server
+spec:
+  limits:
+    - type: Container
+      default: { cpu: 200m, memory: 256Mi }
+      defaultRequest: { cpu: 50m, memory: 128Mi }

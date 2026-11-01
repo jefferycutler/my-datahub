@@ -1,0 +1,92 @@
+# Network policies for the tailscale (edge) namespace.
+# Funnel traffic arrives over the proxy's OUTBOUND tunnel to Tailscale, so no
+# ingress is allowed at all.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# Proxies forward to the MCP service and nothing else inside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-mcp-server
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mcp-server
+          podSelector:
+            matchLabels:
+              app: mcp-server
+      ports:
+        - { protocol: TCP, port: 8000 }
+---
+# Operator needs the API server to manage proxies and Ingress resources.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-k8s-api
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 192.168.30.31/32 }
+        - ipBlock: { cidr: 192.168.30.32/32 }
+        - ipBlock: { cidr: 192.168.30.33/32 }
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# Tailscale control plane, DERP relays and direct WireGuard: public internet
+# only, never RFC1918, so a compromised proxy cannot reach the lab.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-tailscale-internet
+  namespace: tailscale
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: UDP, port: 3478 }
+        - { protocol: UDP, port: 41641 }

@@ -1,0 +1,107 @@
+# Network policies for mcp-server. Default deny first, then explicit allows.
+# Apply BEFORE any workload lands in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: mcp-server
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Only the Funnel proxy (tailscale namespace) may reach the MCP port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-tailscale
+  namespace: mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+      ports:
+        - { protocol: TCP, port: 8000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-dns
+  namespace: mcp-server
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# The kubernetes.default ClusterIP is DNAT'd to the control-plane nodes before
+# policy is evaluated, so allow the node IPs on 6443 (k801-k803).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-k8s-api
+  namespace: mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-server
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 192.168.30.31/32 }
+        - ipBlock: { cidr: 192.168.30.32/32 }
+        - ipBlock: { cidr: 192.168.30.33/32 }
+      ports:
+        - { protocol: TCP, port: 6443 }
+---
+# MariaDB replica mdb3 only -- never the primary or the VIP.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-mariadb-replica
+  namespace: mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-server
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 192.168.30.16/32 }
+      ports:
+        - { protocol: TCP, port: 3306 }
+---
+# Kafka brokers kf1-kf4 (SASL_PLAINTEXT + SCRAM on 9092).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-kafka
+  namespace: mcp-server
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-server
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: { cidr: 192.168.30.51/32 }
+        - ipBlock: { cidr: 192.168.30.52/32 }
+        - ipBlock: { cidr: 192.168.30.53/32 }
+        - ipBlock: { cidr: 192.168.30.54/32 }
+      ports:
+        - { protocol: TCP, port: 9092 }
+# NFS needs no rule here: the node's kubelet mounts the export, not the pod.

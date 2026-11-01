@@ -1,0 +1,22 @@
+# Namespaces for the read-only MCP gateway.
+#
+#   tailscale   -- Tailscale Kubernetes operator AND the Funnel proxy pods it
+#                  creates. The operator places proxy StatefulSets in its own
+#                  namespace, so this is the "edge". Proxy pods need NET_ADMIN,
+#                  so PSS here is baseline (restricted would reject them).
+#   mcp-server  -- the MCP server itself. Restricted PSS, enforced.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tailscale
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-server
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

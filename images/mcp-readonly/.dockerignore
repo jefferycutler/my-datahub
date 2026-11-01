@@ -1,0 +1,6 @@
+tests
+pytest.ini
+requirements.in
+README.md
+__pycache__
+*.pyc

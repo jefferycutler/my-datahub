@@ -1,0 +1,22 @@
+# Public Funnel endpoint via the Tailscale operator. The Ingress lives with
+# the backend; the operator creates the proxy pod in the tailscale namespace.
+# Requires in the tailnet ACLs: tag:mcp-edge owned by the operator's tag, and a
+# nodeAttrs entry granting "funnel" to tag:mcp-edge.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-funnel
+  namespace: mcp-server
+  annotations:
+    tailscale.com/funnel: "true"
+    tailscale.com/tags: "tag:mcp-edge"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: mcp-server
+      port:
+        number: 8000
+  tls:
+    - hosts:
+        - mcp

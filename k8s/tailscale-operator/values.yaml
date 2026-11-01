@@ -1,0 +1,21 @@
+# Tailscale Kubernetes operator Helm values.
+#   helm repo add tailscale https://pkgs.tailscale.com/helmcharts
+#   helm upgrade --install tailscale-operator tailscale/tailscale-operator \
+#     -n tailscale -f k8s/tailscale-operator/values.yaml
+# Verify keys against `helm show values tailscale/tailscale-operator`.
+#
+# OAuth client (scopes: devices:core write, auth_keys write; tag:k8s-operator)
+# is supplied via a pre-created Secret, never inlined here:
+#   kubectl -n tailscale create secret generic operator-oauth \
+#     --from-literal=client_id=... --from-literal=client_secret=...
+oauthSecretVolume:
+  secret:
+    secretName: operator-oauth
+
+operatorConfig:
+  hostname: k8s-operator-pr
+  nodeSelector:
+    kubernetes.io/arch: arm64
+
+proxyConfig:
+  defaultTags: "tag:mcp-edge"

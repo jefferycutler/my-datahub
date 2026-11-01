@@ -13,6 +13,9 @@ compute substrate.
   pipelines, Kafka UI, system-upgrade controller).
 - `gcp/` — Terraform for GCP assets (Artifact Registry, IAM), BigQuery DDL, and
   Cloud Build config.
+- `images/` — Dockerfiles and source for custom container images we build and
+  push to Artifact Registry (`images/mcp-readonly/` so far). `k8s/` references
+  these images but never builds them.
 - `misc/` — utility scripts that aren't part of normal operations, plus
   "pre-Ansible" bootstrap scripts (see below).
 
@@ -281,6 +284,75 @@ dedicated NVMe (`mdb1`: Kingston NV2 1TB at `/var/lib/mysql`, `noatime`) —
 the "bind-mount vs default path" question is resolved in favor of a
 dedicated volume, as originally leaned toward. MaxScale placement (dedicated
 VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
+
+### Read-only MCP gateway — in progress (as of 2026-11-01)
+
+**Design (decided; supersedes the dual-homed `mcp-gate01` approach).** Claude and
+Gemini reach a read-only MCP server through **Tailscale Funnel**, run entirely
+inside K3s. No port-forward on the TELUS hub, no Radxa/Cubie hardware (that
+work is backed out entirely). Honeypot/scan-intel is a separate future project
+(disposable GCP VM rebuilt weekly, feeding BigQuery).
+
+- Namespaces: `tailscale` (operator + Funnel proxy pods; baseline PSS) and
+  `mcp-server` (the MCP pod; restricted PSS). Both default-deny via
+  NetworkPolicy; proxy may reach only `mcp-server:8000`; `mcp-server` accepts
+  ingress only from `tailscale`. The operator puts proxy pods in its own
+  namespace, so there is no separate `mcp-edge`.
+- The MCP server (`images/mcp-readonly/`, FastMCP, streamable HTTP :8000,
+  per-client bearer tokens `MCP_TOKEN_<NAME>`) offers read-only tools for the
+  k8s API, MariaDB (mdb3 replica `192.168.30.16`), Kafka (metadata + bounded
+  message reads), and the NFS datafiles share (names/metadata only).
+  `mcp` is pinned `<2` (v2 renamed `FastMCP`).
+- Manifests: `k8s/mcp/` (apply order and secrets in its README);
+  operator Helm values: `k8s/tailscale-operator/values.yaml`.
+
+**Done**
+- Image `northamerica-northeast2-docker.pkg.dev/cutlernet-datahub/datahub-pr/mcp-readonly:0.1.0`
+  built (arm64+amd64) and pushed; 28 unit tests pass; smoke-tested in a
+  pod-like container (401 without token, 11 tools listed).
+- Tailscale: MagicDNS + HTTPS on; policy file replaced (grants now
+  `autogroup:member` only, so tagged devices cannot initiate connections;
+  `tag:k8s-operator`, `tag:mcp-edge`, `funnel` nodeAttr for the edge tag; tests
+  block); OAuth credential created (Devices:Core + Keys:Auth Keys write, tag
+  `tag:k8s-operator`; values are in the password manager only).
+- Cluster (pr): K3s enforces NetworkPolicy (tested with a throwaway
+  namespace). `k8s/mcp/00`–`40` applied and re-applied (namespaces, policies,
+  RBAC, quota, read-only NFS PV/PVC). They were deleted once by an unexplained
+  `delete -f k8s/mcp/`; re-applied. Verify they still exist before continuing.
+- MariaDB user `mcp_ro`@`192.168.30.%` created on mdb1 with **no grants yet**.
+  Kafka user `mcp_ro` (Describe + Read ACLs on all topics) was created
+  manually in a separate session; not independently verified.
+
+**Still to do / redo**
+1. Create the secrets (nothing exists yet): `operator-oauth` (ns `tailscale`);
+   `mcp-mariadb`, `mcp-kafka`, `mcp-tokens` (ns `mcp-server`). **Generate new
+   Claude/Gemini tokens**: the earlier printed ones were exposed in a chat
+   transcript. The `mcp_ro` DB password was also displayed in a terminal read
+   by Claude; rotate it with `ALTER USER` before granting real access.
+2. Install the operator: `helm upgrade --install tailscale-operator ...` after
+   `helm show values` confirms the `oauthSecretVolume` and
+   `proxyConfig.defaultTags` keys (written from memory, unverified).
+3. Apply `50-mcp-server.yaml` then `60-funnel-ingress.yaml`; check the Funnel
+   hostname; test with/without token; register connectors with Claude/Gemini.
+4. Grant `mcp_ro` SELECT on chosen schemas (`airflow`, `photoprism`, `jeffc`;
+   never `mysql`; `airflow.connection` holds stored credentials).
+5. Verify on mdb3 that `mcp_ro` replicated; verify node pulls from
+   `datahub-pr` (`k3s crictl pull`; skipped so far, creds from
+   `Setup_k3s_Registries.yaml` are untested); confirm allow-rule NetworkPolicies
+   work once pods run (only default-deny has been proven).
+6. Commit the new files (`images/`, `k8s/mcp/`, `k8s/tailscale-operator/` are
+   untracked).
+7. Optional: kubeconfig fallback in `tools_k8s.py` so the image runs outside a
+   cluster (e.g. on the dev station); consider a read-only NFS export on
+   TrueNAS (current read-only is client-side only, export is Mapall/writable).
+
+**Cleanup deferred (Ansible left alone on purpose)**
+- `ansible/Setup_MCPgate.yaml`, `Setup_MCPFirewall.yaml`, `Setup_MCPServer.yaml`,
+  the `mcp` inventory group/`mcp-gate01`, and `misc/mcpgate_routes.sh` belong to
+  the abandoned dual-homed design. Retire them, and rewrite or drop the
+  `mcp-gate01` entry under Known gotchas.
+- Kubernetes pod-log shipping (Fluent Bit DaemonSet to Kafka/BigQuery) is the
+  next track after this one.
 
 ### Next up
 

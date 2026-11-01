@@ -1,0 +1,42 @@
+# Read-only view of the area51nas1 "datafiles" share for the MCP server.
+#
+# Separate PV from airflow's datafiles-nfs-pv (a PV binds to one claim). The
+# export is Mapall -> datahub, so server-side it is writable by every client;
+# read-only here is enforced CLIENT-side (ro mount option + readOnly mounts).
+# A dedicated read-only export on TrueNAS would be stronger -- later.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mcp-datafiles-nfs-pv
+  labels:
+    app: mcp-server
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions:
+    - ro
+    - nfsvers=4.2
+    - hard
+    - timeo=600
+    - retrans=2
+  nfs:
+    server: 192.168.30.9
+    path: /mnt/datahub/datafiles
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mcp-datafiles-nfs-pvc
+  namespace: mcp-server
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: mcp-datafiles-nfs-pv
