@@ -162,4 +162,5 @@ all:
         mcp-gate01:
           ansible_host: 192.168.30.60
           architecture: aarch64
+          zagent: true
           auto_patch_day: Fri
