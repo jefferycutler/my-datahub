@@ -1,0 +1,26 @@
+---
+#################################################################################
+# Setup_MCPgate.yaml
+#
+# Master playbook for the base configuration of the MCP gateway node(s)
+# (inventory group: mcp). Runs the base set in order. Installing the MCP
+# server software itself is a separate playbook.
+#
+# Prerequisite (pre-Ansible): the return routes for a dual-homed node must
+# exist first, see misc/mcpgate_routes.sh.
+#
+# The imported playbooks target "all", so always pass --limit mcp.
+# There is no np equivalent of mcp-gate01, so review with --check first.
+# Usage:
+#   ansible-playbook Setup_MCPgate.yaml -i inventory.pr.yaml --limit mcp --check --diff
+#   ansible-playbook Setup_MCPgate.yaml -i inventory.pr.yaml --limit mcp
+#################################################################################
+
+- import_playbook: Setup_LinuxUsers.yaml
+- import_playbook: Setup_BasePackages.yaml
+- import_playbook: Setup_Timezone.yaml
+- import_playbook: Setup_DNS.yaml
+- import_playbook: Update_HostsFile.yaml
+- import_playbook: Setup_DebAutoPatch.yaml
+- import_playbook: Setup_MailAgent.yaml
+- import_playbook: Setup_Auditd.yaml
