@@ -13,7 +13,8 @@ compute substrate.
   pipelines, Kafka UI, system-upgrade controller).
 - `gcp/` — Terraform for GCP assets (Artifact Registry, IAM), BigQuery DDL, and
   Cloud Build config.
-- `misc/` — utility scripts that aren't part of normal operations.
+- `misc/` — utility scripts that aren't part of normal operations, plus
+  "pre-Ansible" bootstrap scripts (see below).
 
 ## Environments
 
@@ -190,6 +191,41 @@ Templates of interest: `kafka.server.properties.j2`,
   PhotoPrism is ever revisited — Postgres-for-Airflow-only would mean running
   two separate DB engines rather than consolidating on one, since PhotoPrism
   forces the MariaDB/SQLite choice regardless.
+
+- **`mcp-gate01` is dual-homed and replies to other home networks leave via
+  the wrong port.** `eth0` is the TELUS Fibe LAN (`192.168.1.0/24`, DHCP
+  default, metric 100); `eth1` is the lab (`192.168.30.0/24`, static default
+  via `.30.1`, metric 101). Linux routes on destination only, so replies to
+  a client outside `.30` (laptop on `.40`, office `.20`, wired `.10`) match
+  the lower-metric TELUS default, leave `eth0`, and the Fibe router drops
+  them as unsolicited WAN-side packets. Symptom: ping/ssh from a `.30` host
+  works, from other subnets times out; tcpdump shows the request In on `eth1`
+  and the reply Out on `eth0`. Fix is a static return route per client
+  network via `192.168.30.1` on `eth1` (stored in the NetworkManager profile
+  so it survives reboot). A new dual-homed host, or a new client subnet
+  that needs to reach it, needs the same treatment — edit `NETWORKS` in
+  `misc/mcpgate_routes.sh` and re-run it. Traffic between zones is then
+  logged at the central home router.
+
+## Pre-Ansible bootstrap scripts
+
+Some setup has to exist before Ansible can reach a host at all (network
+reachability, return routes, fixed IPs). Ansible can't repair its own control
+path, so these are **standalone bash scripts in `misc/`, run on the target host
+itself** (console or via a jump host), not playbooks. Pattern, from
+`misc/mcpgate_routes.sh`:
+
+- Header comment explaining the problem, why it isn't a playbook, and where to
+  run it.
+- A `# --- Configuration ---` block at the top for the values that change.
+- Idempotent and re-runnable: check current state before changing it, look up
+  NetworkManager profiles by device rather than auto-generated names.
+- Print the resulting state at the end so the run is self-verifying.
+
+This makes the script the record of what was done and the recipe for
+replacing the node. Use this pattern for future pre-Ansible installs;
+`Setup_FixedIP.yaml` is the existing in-repo precedent for the bootstrap
+layer.
 
 ## Conventions for changes
 
