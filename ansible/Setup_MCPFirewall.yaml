@@ -1,0 +1,31 @@
+---
+#################################################################################
+# Setup_MCPFirewall.yaml
+#
+# PLACEHOLDER - not yet implemented.
+#
+# Host firewall for the dual-homed MCP gateway (mcp-gate01). Runs before
+# Setup_MCPServer.yaml so nothing listens publicly without a default-deny policy.
+#
+# Planned scope:
+#   - nftables, default-deny inbound
+#   - eth1 (lab, 192.168.30.0/24): allow SSH from the internal home subnets
+#   - eth0 (TELUS): allow only the public MCP port, if not using a tunnel
+#   - restrict outbound from mcp-gate01 into 192.168.30.0/24 to the specific
+#     hosts/ports the MCP tools need; keep net.ipv4.ip_forward off
+#   - log NEW accepted connections (in and out) and drops, rate-limited, at
+#     warn level with prefixes mcp-fw-accept-in / mcp-fw-accept-out /
+#     mcp-fw-drop. Warn level means the standard 50-forward.conf and the LB
+#     relay already carry them to Kafka/BigQuery with no relay change.
+#   - optional /etc/rsyslog.d/ file for a local /var/log/mcp-firewall.log copy
+#   - apply with a safety timer that reverts if SSH access is not confirmed
+#
+# Prerequisites: Setup_MCPgate.yaml (includes Setup_SyslogForward.yaml)
+# Usage:
+#   ansible-playbook Setup_MCPFirewall.yaml -i inventory.pr.yaml --limit mcp --check --diff
+#################################################################################
+
+- name: Configure host firewall on the MCP gateway
+  hosts: mcp
+  become: true
+  tasks: []

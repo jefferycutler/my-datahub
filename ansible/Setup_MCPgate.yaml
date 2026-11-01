@@ -24,4 +24,5 @@
 - import_playbook: Setup_DebAutoPatch.yaml
 - import_playbook: Setup_MailAgent.yaml
 - import_playbook: Setup_Auditd.yaml
+- import_playbook: Setup_SyslogForward.yaml
 - import_playbook: Setup_ZabbixAgent.yaml

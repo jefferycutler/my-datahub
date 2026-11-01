@@ -1,0 +1,33 @@
+---
+#################################################################################
+# Setup_MCPServer.yaml
+#
+# PLACEHOLDER - not yet implemented.
+#
+# Installs and configures the remote MCP server on mcp-gate01 for connections
+# from Claude and Gemini over the internet. Runs after Setup_MCPFirewall.yaml.
+#
+# Open decisions before this is written:
+#   - public exposure: port forward + reverse proxy (e.g. Caddy, TLS), or an
+#     outbound-only tunnel (Tailscale Funnel / Cloudflare Tunnel)
+#   - domain name and dynamic DNS, if port forwarding
+#   - which tools the server exposes, and the least-privilege credentials each
+#     needs (e.g. read-only BigQuery, RO Kafka consumer, read-only k8s)
+#
+# Planned scope:
+#   - runtime (Python/Node or container), non-root user, systemd service
+#   - remote MCP over HTTPS (streamable HTTP transport) behind a reverse proxy
+#   - authentication layer (OAuth / bearer tokens); check current Claude and
+#     Gemini connector requirements
+#   - secrets via secrets.yaml (add placeholders to example.secrets.yaml)
+#   - rate limiting / abuse controls; request logs forwarded to syslog
+#
+# Prerequisites: Setup_MCPgate.yaml, Setup_MCPFirewall.yaml
+# Usage:
+#   ansible-playbook Setup_MCPServer.yaml -i inventory.pr.yaml --limit mcp --check --diff
+#################################################################################
+
+- name: Install and configure the MCP server
+  hosts: mcp
+  become: true
+  tasks: []
