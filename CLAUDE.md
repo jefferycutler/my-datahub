@@ -342,74 +342,128 @@ the "bind-mount vs default path" question is resolved in favor of a
 dedicated volume, as originally leaned toward. MaxScale placement (dedicated
 VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
 
-### Read-only MCP gateway — in progress (as of 2026-11-01)
+### Read-only MCP gateway — Claude connected, Gemini parked (as of 2026-11-15)
 
-**Design (decided; supersedes the dual-homed `mcp-gate01` approach).** Claude and
-Gemini reach a read-only MCP server through **Tailscale Funnel**, run entirely
-inside K3s. No port-forward on the TELUS hub, no Radxa/Cubie hardware (that
-work is backed out entirely). Honeypot/scan-intel is a separate future project
-(disposable GCP VM rebuilt weekly, feeding BigQuery).
+**Design (current; supersedes both the dual-homed `mcp-gate01` approach and a
+later tailscale-operator/CRD approach that was also abandoned).** Claude
+reaches a read-only MCP server through **Tailscale Funnel**, run entirely
+inside K3s, with **no Kubernetes operator involved**:
 
-- Namespaces: `tailscale` (operator + Funnel proxy pods; baseline PSS) and
+    Internet → https://mcp-funnel.tailf30707.ts.net (Tailscale Funnel)
+             → mcp-funnel pod (ns: tailscale, tag:mcp-edge, manual authkey)
+             → mcp-server.mcp-server.svc:8000 (plain cluster networking)
+             → mcp-server pod (ns: mcp-server)
+
+- The `tailscale-operator` Helm install and `k8s/mcp/60-funnel-ingress.yaml`
+  (CRD-based Ingress) were abandoned mid-project: the operator's own
+  OAuth-based self-tagging (minting an authkey for `tag:k8s-operator`) is
+  rejected by this tailnet's control plane with a 400 "invalid or not
+  permitted" error — reproduced across three separate OAuth clients, two
+  browsers (including a non-automated one), and multiple `tagOwners`
+  configurations. A human-generated authkey for the *same* tag works fine,
+  which is the mechanism `mcp-funnel` uses instead: it joins the tailnet
+  exactly like any other device (phone, laptop), just with `tag:mcp-edge`
+  attached, via a manually-generated reusable/non-ephemeral key. No Tailscale
+  support ticket has been filed (free plan; decided against it) — this is
+  logged as a known, unresolved platform/account quirk, not worth chasing
+  further. `k8s/tailscale-operator/` and `60-funnel-ingress.yaml` are dead
+  code, kept only as a record of what didn't work.
+- Namespaces: `tailscale` (now just `mcp-funnel`; baseline PSS) and
   `mcp-server` (the MCP pod; restricted PSS). Both default-deny via
-  NetworkPolicy; proxy may reach only `mcp-server:8000`; `mcp-server` accepts
-  ingress only from `tailscale`. The operator puts proxy pods in its own
-  namespace, so there is no separate `mcp-edge`.
+  NetworkPolicy; `mcp-funnel` may reach only `mcp-server:8000`; `mcp-server`
+  accepts ingress only from `tailscale`. These NetworkPolicy rules are
+  namespace-wide (`podSelector: {}`), written generically enough that they
+  needed zero changes when the operator was dropped for a plain Deployment.
+- `mcp-funnel`'s tailscale container auto-detects Kubernetes and stores its
+  tailnet state in a Secret (not just a file), regardless of `TS_STATE_DIR` —
+  needs its own scoped ServiceAccount/Role (`get/create/update/patch` on one
+  named Secret; `create` can't be scoped by `resourceNames`, needs its own
+  unscoped rule). See `k8s/mcp/55-funnel-standalone.yaml`.
 - The MCP server (`images/mcp-readonly/`, FastMCP, streamable HTTP :8000,
   per-client bearer tokens `MCP_TOKEN_<NAME>`) offers read-only tools for the
   k8s API, MariaDB (mdb3 replica `192.168.30.16`), Kafka (metadata + bounded
   message reads), and the NFS datafiles share (names/metadata only).
   `mcp` is pinned `<2` (v2 renamed `FastMCP`).
-- Manifests: `k8s/mcp/` (apply order and secrets in its README);
-  operator Helm values: `k8s/tailscale-operator/values.yaml`.
+- Manifests: `k8s/mcp/` (apply order and secrets in its README, which still
+  describes the old operator-based order — needs a rewrite to match this
+  section).
 
 **Done**
-- Image `northamerica-northeast2-docker.pkg.dev/cutlernet-datahub/datahub-pr/mcp-readonly:0.1.0`
-  built (arm64+amd64) and pushed; 28 unit tests pass; smoke-tested in a
-  pod-like container (401 without token, 11 tools listed).
-- Tailscale: MagicDNS + HTTPS on; policy file replaced (grants now
-  `autogroup:member` only, so tagged devices cannot initiate connections;
-  `tag:k8s-operator`, `tag:mcp-edge`, `funnel` nodeAttr for the edge tag; tests
-  block); OAuth credential created (Devices:Core + Keys:Auth Keys write, tag
-  `tag:k8s-operator`; values are in the password manager only).
-- Cluster (pr): K3s enforces NetworkPolicy (tested with a throwaway
-  namespace). `k8s/mcp/00`–`40` applied and re-applied (namespaces, policies,
-  RBAC, quota, read-only NFS PV/PVC). They were deleted once by an unexplained
-  `delete -f k8s/mcp/`; re-applied. Verify they still exist before continuing.
-- MariaDB user `mcp_ro`@`192.168.30.%` created on mdb1 with **no grants yet**.
-  Kafka user `mcp_ro` (Describe + Read ACLs on all topics) was created
-  manually in a separate session; not independently verified.
+- Image built/pushed, deployed, verified end-to-end — both internally
+  (`kubectl port-forward`) and from the real internet through the public
+  Funnel URL (`curl` from an external host): 401 without a token, full MCP
+  `initialize` handshake with one, `tools/list` returns all 11 tools.
+- NFS PV/PVC repointed to the post-migration path
+  (`192.168.30.9:/mnt/share/datahub/datafiles`); old PV/PVC deleted and
+  recreated (server/path are immutable on a live PV).
+- Secrets live: `operator-oauth` (unused now, harmless to leave or delete),
+  `mcp-mariadb`, `mcp-kafka` (using the existing shared `dhconsume` consumer
+  user — a deliberate choice over a dedicated Kafka principal, made after the
+  operator/OAuth saga; revisit only if isolation from other `dhconsume`
+  consumers ever matters), `mcp-tokens` (fresh `MCP_TOKEN_CLAUDE`/
+  `MCP_TOKEN_GEMINI`, generated and piped straight into the Secret without
+  ever being printed), `mcp-funnel-authkey`.
+- MariaDB: `mcp_ro`@`192.168.30.%` granted `SELECT, SHOW VIEW` on `airflow`
+  and `photoprism` only (not `jeffc` — deferred, easy to add later; never
+  `mysql`, which holds every account's password hash in
+  `mysql.global_priv`/`mysql.user`). Confirmed replicated to mdb3. **Open
+  risk, not yet decided:** `airflow.connection` holds other systems' stored
+  credentials and is covered by the schema-level grant — no table-level
+  `REVOKE` has been applied, and the MCP tool doesn't filter it at the
+  application layer either. `db_query`/`db_schema` are left on "Needs
+  approval" in Claude's connector settings partly to mitigate this.
+- Claude connector ("Home Lab k8s") registered and working: custom connector,
+  **"No sign-in"** auth mode (not OAuth — Claude's UI auto-detects an OAuth
+  flow from the `WWW-Authenticate: Bearer` 401 response and defaults to the
+  wrong mode), `Authorization: Bearer <MCP_TOKEN_CLAUDE>` as a static request
+  header. Tool-level approval set to "Needs approval" across the board for
+  now.
+
+**Gemini — parked, needs OAuth work**
+Gemini's custom MCP connector (gemini.google.com → Settings → Connected Apps
+→ Custom apps, reached via Developer mode) is **OAuth-only** — confirmed live:
+it auto-detects our server lacks Dynamic Client Registration and only offers
+a "Client ID"/"Client secret" fallback, no static API-key/header option like
+Claude has. `mcp-readonly` doesn't implement OAuth at all today.
+
+Planned approach when this gets picked up: reuse **Google's own OAuth 2.0
+infrastructure** as the authorization server instead of writing our own
+`/authorize`+`/token` endpoints —
+1. Create an OAuth 2.0 Client ID (Web application) in GCP Console, in
+   `cutlernet-datahub`, redirect URI from Gemini's "Copy redirect URI".
+2. `mcp-readonly` gains token-validation logic: verify the incoming Bearer
+   token is a genuine Google-issued ID token (signature against Google's
+   JWKS, `aud` matches our Client ID, `email` claim matches the account
+   owner) instead of a static per-client secret.
+3. **Manage the OAuth Client ID as Terraform** in `gcp/` (not click-ops in
+   the Console), deployed via the existing Cloud Build pipeline on commit to
+   `main` — same pattern already used for Artifact Registry/IAM, and the
+   pattern used at $DAYJOB worth carrying over here deliberately.
+4. Untested assumption to verify before trusting this plan: that Gemini's
+   connector flow actually cooperates with Google's token/discovery
+   semantics for a resource that isn't a Google API. Plausible (Google's
+   OAuth endpoints support PKCE/OIDC discovery), not proven.
 
 **Still to do / redo**
-1. Create the secrets (nothing exists yet): `operator-oauth` (ns `tailscale`);
-   `mcp-mariadb`, `mcp-kafka`, `mcp-tokens` (ns `mcp-server`). **Generate new
-   Claude/Gemini tokens**: the earlier printed ones were exposed in a chat
-   transcript. The `mcp_ro` DB password was also displayed in a terminal read
-   by Claude; rotate it with `ALTER USER` before granting real access.
-2. Install the operator: `helm upgrade --install tailscale-operator ...` after
-   `helm show values` confirms the `oauthSecretVolume` and
-   `proxyConfig.defaultTags` keys (written from memory, unverified).
-3. Apply `50-mcp-server.yaml` then `60-funnel-ingress.yaml`; check the Funnel
-   hostname; test with/without token; register connectors with Claude/Gemini.
-4. Grant `mcp_ro` SELECT on chosen schemas (`airflow`, `photoprism`, `jeffc`;
-   never `mysql`; `airflow.connection` holds stored credentials).
-5. Verify on mdb3 that `mcp_ro` replicated; verify node pulls from
-   `datahub-pr` (`k3s crictl pull`; skipped so far, creds from
-   `Setup_k3s_Registries.yaml` are untested); confirm allow-rule NetworkPolicies
-   work once pods run (only default-deny has been proven).
-6. Commit the new files (`images/`, `k8s/mcp/`, `k8s/tailscale-operator/` are
-   untracked).
-7. Optional: kubeconfig fallback in `tools_k8s.py` so the image runs outside a
-   cluster (e.g. on the dev station); consider a read-only NFS export on
+1. Decide on `airflow.connection` (table-level REVOKE vs. app-layer filter)
+   — see "Open risk" above.
+2. Gemini OAuth work, see above — not started.
+3. Verify node pulls from `datahub-pr` under real (non-manual) conditions;
+   confirm allow-rule NetworkPolicies work once more pods are added (only
+   default-deny + the two active allow rules have been proven so far).
+4. Commit the new/changed files (`images/`, `k8s/mcp/` incl. the new
+   `55-funnel-standalone.yaml`, reverted `k8s/tailscale-operator/values.yaml`,
+   dead `60-funnel-ingress.yaml`) — holding on this per request, user is
+   committing manually at the end of the session.
+5. Rewrite `k8s/mcp/README.md`'s apply order, which still describes the
+   abandoned operator-based flow.
+6. Optional: kubeconfig fallback in `tools_k8s.py` so the image runs outside
+   a cluster (e.g. on the dev station); consider a read-only NFS export on
    TrueNAS (current read-only is client-side only, export is Mapall/writable).
-
-**Cleanup deferred (Ansible left alone on purpose)**
-- `ansible/Setup_MCPgate.yaml`, `Setup_MCPFirewall.yaml`, `Setup_MCPServer.yaml`,
-  the `mcp` inventory group/`mcp-gate01`, and `misc/mcpgate_routes.sh` belong to
-  the abandoned dual-homed design. Retire them, and rewrite or drop the
-  `mcp-gate01` entry under Known gotchas.
-- Kubernetes pod-log shipping (Fluent Bit DaemonSet to Kafka/BigQuery) is the
-  next track after this one.
+7. `area51nas1`/`mcp-gate01` are missing from the Tailscale Machines list
+   (noticed 2026-11-15, unrelated to anything done in this session — likely
+   tied to today's NAS hardware migration needing fresh Tailscale setup on
+   the new box). User is handling this themselves (decommissioning both).
 
 ### Next up
 

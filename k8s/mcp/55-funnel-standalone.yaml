@@ -1,0 +1,103 @@
+# Standalone Tailscale Funnel container for mcp-server -- replaces the
+# tailscale-operator approach. The operator's own OAuth-based self-tagging
+# (minting an authkey for tag:k8s-operator) is rejected by this tailnet's
+# control plane with a 400 "invalid or not permitted" error -- reproduced
+# across three separate OAuth clients, two browsers, and multiple tagOwners
+# configurations, so it's treated as unfixable from our side for now. A
+# human-generated authkey for the same tag works fine (confirmed), which is
+# the same mechanism any other device (phone, laptop) joins this tailnet
+# with. This Deployment uses that path instead of OAuth/the operator.
+#
+# Runs in the `tailscale` namespace, which already has the NetworkPolicies
+# this needs (egress to mcp-server:8000, DNS, tailscale's own servers --
+# see 11-netpol-tailscale.yaml) without changes, since those rules are
+# namespace-wide (podSelector: {}), not scoped to the operator's own pods.
+#
+# TS_USERSPACE defaults to enabled in the tailscale/tailscale image, so no
+# NET_ADMIN / /dev/net/tun is needed -- fits the namespace's baseline PSS.
+#
+# The image auto-detects it's running in Kubernetes and stores its tailnet
+# state in a Secret (named by TS_KUBE_SECRET, default "tailscale") rather
+# than a plain file, regardless of TS_STATE_DIR -- hence the dedicated SA/
+# Role below (get/create/update/patch on that one Secret, nothing else).
+# This is more portable than a node-pinned local-path PVC and survives
+# rescheduling to a different node.
+#
+# Secret (create out-of-band, never committed):
+#   kubectl -n tailscale create secret generic mcp-funnel-authkey \
+#     --from-literal=TS_AUTHKEY=...
+#   (generate at https://console.tailscale.com/admin/settings/keys --
+#    reusable, non-ephemeral, tag:mcp-edge)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-funnel
+  namespace: tailscale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mcp-funnel
+  namespace: tailscale
+rules:
+  # "create" can't be scoped by resourceNames (the object doesn't exist yet
+  # at create time, so there's nothing to match against) -- needs its own
+  # unscoped rule. get/update/patch are scoped to the one named Secret.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [tailscale]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [get, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mcp-funnel
+  namespace: tailscale
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mcp-funnel
+subjects:
+  - kind: ServiceAccount
+    name: mcp-funnel
+    namespace: tailscale
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-funnel
+  namespace: tailscale
+  labels:
+    app: mcp-funnel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-funnel
+  template:
+    metadata:
+      labels:
+        app: mcp-funnel
+    spec:
+      serviceAccountName: mcp-funnel
+      containers:
+        - name: tailscale
+          image: tailscale/tailscale:v1.104.7
+          env:
+            - { name: TS_HOSTNAME, value: "mcp-funnel" }
+            - { name: TS_AUTH_ONCE, value: "true" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_UID
+              valueFrom: { fieldRef: { fieldPath: metadata.uid } }
+          envFrom:
+            - secretRef: { name: mcp-funnel-authkey }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }

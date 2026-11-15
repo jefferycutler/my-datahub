@@ -24,7 +24,7 @@ spec:
     - retrans=2
   nfs:
     server: 192.168.30.9
-    path: /mnt/datahub/datafiles
+    path: /mnt/share/datahub/datafiles
     readOnly: true
 ---
 apiVersion: v1
