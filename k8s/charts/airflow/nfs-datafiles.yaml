@@ -1,6 +1,9 @@
 # Static PV + PVC for the area51nas1 NFS-backed "datafiles" share.
 #
-# Backing dataset: /mnt/datahub/datafiles on area51nas1 (TrueNAS)
+# Backing dataset: /mnt/share/datahub/datafiles on area51nas1 (TrueNAS).
+# Path changed 2026-11-14 when area51nas1's role moved to the replacement
+# NAS host (new pool layout: /mnt/share/... instead of /mnt/datahub/...).
+# server stays 192.168.30.9 -- that VIP/IP moved to the new host, unchanged.
 # NFS export uses Mapall -> datahub:datahub (UID 3002 / GID 3001), so every
 # client (pods here, laptop, NAS-side cron) writes as the same identity
 # regardless of local UID. Dataset mode is 770.
@@ -31,7 +34,7 @@ spec:
     - retrans=2
   nfs:
     server: 192.168.30.9
-    path: /mnt/datahub/datafiles
+    path: /mnt/share/datahub/datafiles
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

@@ -115,21 +115,37 @@ Kafka is intentionally in the middle as a buffer for cloud/internet outages.
 
 ### Airflow — NFS-backed shared data volume
 
-`datafiles-nfs-pv` / `datafiles-nfs-pvc` (namespace `airflow`) is a **static**
-PV/PVC backed by a TrueNAS NFS export (`area51nas1:/mnt/datahub/datafiles`),
-mounted at `/opt/airflow/datafiles` on scheduler, apiServer, and
-KubernetesExecutor task pods. No CSI provisioner involved — plain kernel NFS
-client, same mechanism whether it's a k3s pod, a dev laptop, or a NAS-side
-cron job.
+`datafiles-nfs-pv` / `datafiles-nfs-pvc` and `airflow-dags-nfs-pv` /
+`airflow-dags-nfs-pvc` (namespace `airflow`) are **static** PV/PVCs backed by
+TrueNAS NFS exports on `area51nas1` (`192.168.30.9`):
+`/mnt/share/datahub/datafiles` and `/mnt/share/datahub/airflow-dags`
+(manifests: `k8s/charts/airflow/nfs-datafiles.yaml`,
+`k8s/charts/airflow/nfs-airflow-dags.yaml`). Mounted at
+`/opt/airflow/datafiles` / `/opt/airflow/dags` on scheduler, apiServer,
+dag-processor, triggerer, and KubernetesExecutor task pods. No CSI
+provisioner involved — plain kernel NFS client, same mechanism whether it's a
+k3s pod, a dev workstation, or a NAS-side cron job.
 
-Identity model: the NFS export uses **Mapall** (User/Group both `datahub`,
-UID 3002 / GID 3001). This rewrites *every* connecting client's identity to
-that UID:GID server-side, regardless of what UID the client actually
-presents — root on a laptop, an Airflow pod running as UID 50000, doesn't
-matter. Confirmed working consistently across all three. This means pod
-`securityContext.runAsUser` does **not** need to match 3002/3001 for the
-mount to work — Mapall already guarantees it server-side. Dataset mode on
-TrueNAS is `770`.
+**Paths changed 2026-11-15** when `area51nas1`'s hostname/VIP role moved to
+new hardware (see "area51nas1 hardware migration" under Current work in
+progress below) — old paths were `/mnt/datahub/datafiles` and
+`/mnt/datahub/airflow-dags`. A client with a pre-existing kernel NFS mount at
+the old path will hit `Stale file handle` after the cutover; `umount -f` (or
+`-l` if that hangs) and remount — editing `/etc/fstab` alone does not fix an
+already-mounted filesystem.
+
+Identity model: the NFS export uses **Mapall** (User/Group both `datahub`).
+On the new host this is UID **3001** / GID **3001** (the old host used UID
+3002 / GID 3001 — not reconciled, since Mapall maps by account *name* on the
+server, not by matching numeric IDs between client and server, so this
+doesn't affect functionality). This rewrites *every* connecting client's
+identity to that UID:GID server-side, regardless of what UID the client
+actually presents — root on a laptop, an Airflow pod running as UID 50000,
+doesn't matter. This means pod `securityContext.runAsUser` does **not** need
+to match the NAS-side UID/GID for the mount to work — Mapall already
+guarantees it server-side. Dataset mode on the new host is `775` (group *and*
+other both get read/execute — intentionally left permissive since this is
+public, non-sensitive data; tighten to `770` if that ever changes).
 
 For SMB access to the same dataset (e.g. laptop on garden wifi, untrusted
 network segment where NFS's IP-based trust is weaker), use SMB's "force
@@ -194,6 +210,18 @@ Templates of interest: `kafka.server.properties.j2`,
   PhotoPrism is ever revisited — Postgres-for-Airflow-only would mean running
   two separate DB engines rather than consolidating on one, since PhotoPrism
   forces the MariaDB/SQLite choice regardless.
+
+- **TrueNAS 25.10 "Goldeye" removed the internal Certificate Authority
+  signing engine and its UI entirely** (Credentials → Certificates page has
+  no CA card/section anymore — this is expected, not a bug) **and removed
+  the built-in SMART test scheduling UI/service** (`smartmontools` is still
+  installed and TrueNAS still does some background SMART polling, but
+  scheduled tests now need a manual cron job, e.g. `smartctl -t short
+  /dev/sdX`, or a third-party app like Scrutiny). A host still on an older
+  SCALE version (e.g. 25.04.2.6) will have both of these in its UI; don't
+  assume feature parity across hosts without checking the version first —
+  see the area51nas1 hardware migration note above for a concrete case
+  where this caused confusion.
 
 - **`mcp-gate01` is dual-homed and replies to other home networks leave via
   the wrong port.** `eth0` is the TELUS Fibe LAN (`192.168.1.0/24`, DHCP
@@ -274,6 +302,35 @@ layer.
 - Project ID: `cutlernet-datahub`. Region: `northamerica-northeast2`.
 
 ## Current work in progress
+
+### area51nas1 hardware migration — done (2026-11-15)
+
+The original `area51nas1` (AM4 Ryzen box) had a recurring hard-lockup fault
+(suspected CPU/socket damage from an earlier CPU swap). Its role was handed
+off to new NAS hardware rather than repaired in place:
+
+- New hardware took over the `area51nas1` hostname and production VIP
+  `192.168.30.9`. It runs **TrueNAS 25.10.8 "Goldeye"**.
+- The original box was renamed `area51nas2` and moved to `192.168.30.8` — it
+  is now the backup/bench-test NAS, pending hardware diagnosis/repair. It
+  still runs **TrueNAS 25.04.2.6** (see the Goldeye UI-removal gotcha below —
+  the two hosts' Certificates/Credentials pages look different because of
+  this version gap, not a config error).
+- Airflow's NFS shares were recreated fresh on the new host rather than
+  copied (`/mnt/share/datahub/{datafiles,airflow-dags}`, new ZFS datasets,
+  `datahub` identity UID/GID 3001/3001, mode `775`) — see the Airflow NFS
+  section above for the full identity/path details. No data was migrated
+  from the old `/mnt/datahub/*` datasets.
+- The old host's TLS setup (`jeffc-homelab-ca` self-signed CA +
+  `area51nas1-webui` leaf cert) was **not** carried over — TrueNAS 25.10
+  removed the CA-signing UI entirely (see gotcha below), so there was nothing
+  to import it into. The new host's web UI runs on the default self-signed
+  `truenas_default` cert (browser warning accepted) until it's switched to
+  Let's Encrypt. Not a priority fix.
+- **Still outstanding:** `mcp-server` namespace's `mcp-datafiles-nfs-pv`
+  (see the Read-only MCP gateway section below) still points at the old
+  `192.168.30.9:/mnt/datahub/datafiles` path and needs the same path update
+  whenever that project resumes.
 
 ### MariaDB HA pair — done, superseded by Architecture highlights above
 
