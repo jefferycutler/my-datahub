@@ -15,8 +15,10 @@
   become: yes
   vars:
     # Override mariadb_datadir in host_vars when binding to a separate volume.
+    # mariadb_port comes from the `databases` group vars in inventory — it's
+    # the actual mariadbd listen port, intentionally NOT 3306 once MaxScale
+    # is in the picture (see inventory.np.yaml for why).
     mariadb_datadir: /var/lib/mysql
-    mariadb_port: 3306
   vars_files:
     - secrets.yaml
 
@@ -119,6 +121,23 @@
         name: test
         state: absent
         login_unix_socket: /var/run/mysqld/mysqld.sock
+
+  #################################################################
+  # Replication user grants
+  # Granted on every host for every peer (not just by the current primary
+  # for its replicas) so that whichever node MaxScale promotes to primary
+  # already has the grant needed to accept a REPLICATION SLAVE connection
+  # from whichever node it demotes.  Without this, MaxScale's auto_rejoin
+  # only works in the original primary -> replica direction, not reversed.
+    - name: Grant replication user access for every peer host
+      community.mysql.mysql_user:
+        name: "{{ mariadb_repl_user }}"
+        host: "{{ hostvars[item].ansible_host }}"
+        password: "{{ mariadb_repl_pw }}"
+        priv: "*.*:REPLICATION SLAVE"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      loop: "{{ groups['databases'] | difference([inventory_hostname]) }}"
 
   handlers:
     - name: restart mariadb

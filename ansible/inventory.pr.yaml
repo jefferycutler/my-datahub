@@ -138,6 +138,17 @@ all:
         zagent: true
         mariadb_vip: 192.168.30.15
         mariadb_buffer_pool_size: "2G"
+        # Ports are deliberately swapped from the pre-MaxScale default so
+        # existing client connection strings (Airflow, Photoprism — both
+        # hardcode host:3306) don't have to change:
+        #   maxscale_port = 3306  — MaxScale's RW-Split-Listener.  This is
+        #     what the VIP fronts and what every client (old and new)
+        #     connects to.  Role-aware: always lands on the real primary.
+        #   mariadb_port  = 3307  — the actual mariadbd processes.  Direct,
+        #     not role-aware; intended for inter-node replication and
+        #     MaxScale's own backend connections only, not applications.
+        maxscale_port: 3306
+        mariadb_port: 3307
       hosts:
         mdb1:
           ansible_host: 192.168.30.13

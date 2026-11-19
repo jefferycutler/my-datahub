@@ -2,13 +2,15 @@
 #################################################################################
 # Setup_MariaDB.yaml
 #
-# End-to-end provisioning for the MariaDB HA pair.  Imports the four
+# End-to-end provisioning for the MariaDB HA pair.  Imports the five
 # component playbooks in order:
 #
-#   1. Setup_MariaDB_Common.yaml   — apt install, base config, root password
-#   2. Setup_MariaDB_Primary.yaml  — binlog/GTID, replication user, seeding dump
+#   1. Setup_MariaDB_Common.yaml   — apt install, base config, root password,
+#                                    bidirectional replication-user grants
+#   2. Setup_MariaDB_Primary.yaml  — binlog/GTID, seeding dump
 #   3. Setup_MariaDB_Replica.yaml  — read_only, restore dump, CHANGE MASTER, START REPLICA
-#   4. Setup_MariaDB_VIP.yaml      — Keepalived, floating mariadb_vip
+#   4. Setup_MariaDB_MaxScale.yaml — MaxScale monitor/service, auto_failover/auto_rejoin
+#   5. Setup_MariaDB_VIP.yaml      — Keepalived, floating mariadb_vip fronting MaxScale
 #
 # Each child playbook is idempotent and individually re-runnable, so this
 # wrapper can be re-run safely against a partially-provisioned pair.
@@ -20,4 +22,5 @@
 - import_playbook: Setup_MariaDB_Common.yaml
 - import_playbook: Setup_MariaDB_Primary.yaml
 - import_playbook: Setup_MariaDB_Replica.yaml
+- import_playbook: Setup_MariaDB_MaxScale.yaml
 - import_playbook: Setup_MariaDB_VIP.yaml

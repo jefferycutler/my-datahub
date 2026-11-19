@@ -6,12 +6,20 @@
 # with a `mariadb_role` set) to manage a floating VIP defined as
 # `mariadb_vip` in the inventory.
 #
-# Runs co-located with MariaDB itself — no separate VIP host needed.  Health
-# is tracked by `systemctl is-active mariadb`; a stopped or crashed mariadb
-# loses the VIP to the surviving peer.  See the template for the failover
-# design (BACKUP + nopreempt: VIP moves on failure, stays put on recovery).
+# Runs co-located with MaxScale (and MariaDB) itself — no separate VIP host
+# needed.  Health is tracked by `systemctl is-active maxscale`, not
+# mariadb: the VIP fronts MaxScale's RW-Split-Listener, and MaxScale's own
+# monitor routes to whichever backend is actually primary, so the VIP layer
+# doesn't need to know or care which node that is.  A stopped or crashed
+# maxscale loses the VIP to the surviving peer.  See the template for the
+# failover design (BACKUP + nopreempt: VIP moves on failure, stays put on
+# recovery).
 #
-# Prerequisite: Setup_MariaDB_Common.yaml (mariadb running on both hosts).
+# Prerequisite: Setup_MariaDB_Common.yaml, _Primary.yaml, _Replica.yaml, and
+# Setup_MariaDB_MaxScale.yaml (maxscale running on both hosts).  Clients
+# connect to mariadb_vip:maxscale_port (3306 — unchanged from before
+# MaxScale existed, by design); mariadb_vip:mariadb_port (3307) reaches a
+# specific backend directly and bypasses MaxScale's routing entirely.
 #
 # Usage:
 #   ansible-playbook -i inventory.np.yaml Setup_MariaDB_VIP.yaml
@@ -37,8 +45,9 @@
         cache_valid_time: 3600
 
     # Allow non-VIP-holding nodes to start services bound to mariadb_vip too,
-    # so HAProxy/MaxScale (if ever fronted in front of the VIP) won't fail
-    # to bind on the BACKUP node.  Cheap and well-understood toggle.
+    # so MaxScale's listener won't fail to bind on the BACKUP node (it's
+    # running there too, just not currently holding the VIP).  Cheap and
+    # well-understood toggle.
     - name: Allow binding to non-local IPs (for clients fronting the VIP)
       ansible.posix.sysctl:
         name: net.ipv4.ip_nonlocal_bind

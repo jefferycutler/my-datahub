@@ -3,9 +3,10 @@
 # Setup_MariaDB_Primary.yaml
 #
 # Applies primary-specific configuration to the host in the `databases` group
-# with mariadb_role: primary.  Enables binary logging with GTID, creates the
-# replication user, and produces a consistent dump that Setup_MariaDB_Replica.yaml
-# will restore on the replica to seed it.
+# with mariadb_role: primary.  Enables binary logging with GTID and produces
+# a consistent dump that Setup_MariaDB_Replica.yaml will restore on the
+# replica to seed it.  (Replication user grants are created in
+# Setup_MariaDB_Common.yaml, not here.)
 #
 # Prerequisite: Setup_MariaDB_Common.yaml has already been applied to this host.
 #
@@ -47,18 +48,9 @@
       ansible.builtin.meta: flush_handlers
 
   #################################################################
-  # Replication user
-  # One grant per replica host in the `databases` group (host-locked, not
-  # wildcarded).  Re-running with the same password is a no-op.
-    - name: Create replication user for each replica
-      community.mysql.mysql_user:
-        name: "{{ mariadb_repl_user }}"
-        host: "{{ hostvars[item].ansible_host }}"
-        password: "{{ mariadb_repl_pw }}"
-        priv: "*.*:REPLICATION SLAVE"
-        state: present
-        login_unix_socket: /var/run/mysqld/mysqld.sock
-      loop: "{{ groups['databases'] | difference([inventory_hostname]) }}"
+  # Replication user grants now live in Setup_MariaDB_Common.yaml (applied
+  # on every host, for every peer) so that MaxScale-driven failover can
+  # reverse replication direction later without a missing grant.
 
   #################################################################
   # Consistent snapshot for seeding the replica

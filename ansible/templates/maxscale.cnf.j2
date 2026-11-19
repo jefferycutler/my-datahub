@@ -1,0 +1,72 @@
+# Ansible-managed: MariaDB MaxScale configuration
+# Deployed by Setup_MariaDB_MaxScale.yaml.  Identical content on every host
+# in the `databases` group — each co-located MaxScale instance monitors and
+# can route to *either* backend server, not just the one it's local to.
+#
+# Design notes:
+#  * MariaDB-Monitor (mariadbmon) is the thing that actually knows which
+#    backend is currently primary.  auto_failover/auto_rejoin let it promote
+#    a replica and reattach a recovered former-primary without a human
+#    running CHANGE MASTER by hand.
+#  * cooperative_monitoring_locks=majority_of_running (not majority_of_all):
+#    with only two servers, majority_of_all needs agreement from both to act,
+#    which is unreachable by definition when one of the two is the thing
+#    that's down.  majority_of_running computes the majority over whichever
+#    servers are currently reachable, so the surviving MaxScale can still
+#    get a lock and act when its peer backend is the one that died.
+#    Caveat: a true 2-node pair still has no split-brain protection if the
+#    two MaxScale instances lose sight of each other's view of the world
+#    (e.g. a network partition) — acceptable for this NP test, worth
+#    reconsidering before this design is promoted to pr.
+#  * RW-Split-Service/-Listener is what applications actually connect to.
+#    It always finds the real primary via the monitor's state, so the
+#    keepalived VIP in front of it only needs to check "is maxscale up",
+#    not "which backend is primary" — that's the whole point of fronting
+#    MaxScale instead of mariadb directly.
+#  * Ports are swapped from the pre-MaxScale default: the listener below
+#    binds maxscale_port (3306) — the same port Airflow/Photoprism already
+#    use, unchanged — while the [server] stanzas below point at
+#    mariadb_port (3307), the real mariadbd processes.  That way existing
+#    client connection strings need no changes at all; they just end up
+#    going through MaxScale's role-aware routing instead of hitting a
+#    specific backend directly.
+
+[maxscale]
+threads=auto
+
+{% for host in groups['databases'] %}
+[{{ host }}]
+type=server
+address={{ hostvars[host].ansible_host }}
+port={{ mariadb_port | default(3307) }}
+protocol=MariaDBBackend
+
+{% endfor %}
+[MariaDB-Monitor]
+type=monitor
+module=mariadbmon
+servers={{ groups['databases'] | join(',') }}
+user={{ maxscale_monitor_user }}
+password={{ maxscale_monitor_pw }}
+monitor_interval=2000ms
+auto_failover=true
+auto_rejoin=true
+failcount=3
+replication_user={{ mariadb_repl_user }}
+replication_password={{ mariadb_repl_pw }}
+enforce_writable_master=true
+enforce_read_only_slaves=true
+cooperative_monitoring_locks=majority_of_running
+
+[RW-Split-Service]
+type=service
+router=readwritesplit
+servers={{ groups['databases'] | join(',') }}
+user={{ maxscale_service_user }}
+password={{ maxscale_service_pw }}
+
+[RW-Split-Listener]
+type=listener
+service=RW-Split-Service
+protocol=MariaDBClient
+port={{ maxscale_port | default(3306) }}

@@ -54,7 +54,12 @@ Host vars worth knowing about:
 - `kafka_is_controller: true` — this broker participates in the KRaft quorum
 - `kafka_log_dirs` — list of data dirs for Kafka topic partitions
 - `dbtype: mariadb` — engine type for hosts in the `databases` group
-- `mariadb_role: primary` / `replica` — role assignment for HA pair
+- `mariadb_role: primary` / `replica` — **bootstrap intent only**: which node
+  Ansible seeds as primary the first time the pair is built from scratch.
+  Once MaxScale is managing the pair (see Architecture highlights below),
+  this is NOT live truth — either node can hold the primary role at any
+  time after a failover, with no automatic failback. Check `maxctrl list
+  servers` or `@@read_only` for the real current state.
 
 ## Naming conventions
 
@@ -67,9 +72,12 @@ Host vars worth knowing about:
   `90-kafka.conf`) match the rsyslog `/etc/rsyslog.d/` ordering convention.
 - **Secrets**: `ansible/secrets.yaml` is gitignored. An
   `ansible/example.secrets.yaml` template is checked in with placeholder
-  values; `mkexsec.sh` regenerates it from `secrets.yaml`. There are also
-  per-environment variants (`secrets.pr.yaml`, `secrets.np.yaml`) for
-  environment-specific credentials.
+  values; `mkexsec.sh` regenerates it from `secrets.yaml`. There is a single
+  shared `secrets.yaml` covering both environments — despite what an older
+  version of this note said, there are no separate `secrets.pr.yaml`/
+  `secrets.np.yaml` files in the repo; environment-specific values (where
+  they exist, e.g. `harbor_np_user` vs. a pr equivalent) live as
+  differently-named keys in the one file.
 
 ## Architecture highlights
 
@@ -167,6 +175,53 @@ The pr cluster runs **KRaft mode** with:
 Templates of interest: `kafka.server.properties.j2`,
 `kafka_server_jaas.conf.j2`, `kafka.admin.properties.j2`.
 
+### MariaDB HA / MaxScale automatic failover
+
+The `databases` group (pr: `mdb1`/`mdb3`; np: `tmdb1`/`tmdb2`) runs MariaDB
+primary/replica GTID replication fronted by **MariaDB MaxScale**, co-located
+on each DB host rather than on a dedicated node or the `lb` hosts — every
+MaxScale instance monitors *both* servers and can route to whichever one is
+actually primary.
+
+- **No preferred primary, no automatic failback.** `mariadb_role` in
+  inventory is bootstrap intent only (see the host-vars note above) — not a
+  live source of truth once MaxScale is managing the pair. A promoted node
+  stays primary until another failover event moves it again.
+- **Ports are swapped** so existing application connection strings
+  (Airflow, Photoprism — both hardcode `host:3306`) never have to change:
+  `maxscale_port` (3306) is MaxScale's RW-Split-Listener — what every
+  client connects to, always role-aware, routing reads to the replica and
+  writes/transactions to the real primary. `mariadb_port` (3307) is the
+  actual `mariadbd` process — direct, not role-aware, used only for
+  inter-node replication and MaxScale's own backend connections, never by
+  applications.
+- **MariaDB-Monitor (mariadbmon)** handles `auto_failover`/`auto_rejoin`
+  automatically; `enforce_writable_master`/`enforce_read_only_slaves` keep
+  `read_only` correct on both sides even across a plain `mariadb` restart.
+  `cooperative_monitoring_locks=majority_of_running` (not `majority_of_all`)
+  — with only two servers, `majority_of_all` can never be satisfied by the
+  single surviving node when the other one is the thing that's down;
+  `majority_of_running` computes the majority over whoever's actually
+  reachable, so the surviving MaxScale can still act and complete a
+  failover. A true 2-node pair still has no split-brain protection against
+  a network partition between the two MaxScale instances themselves —
+  accepted for now, worth reconsidering if a third node is ever added.
+- The keepalived VIP (`mariadb_vip`) fronts **MaxScale**, not mariadb
+  directly — health check is `systemctl is-active maxscale`. This is why
+  the VIP doesn't need to move on a backend failure: the MaxScale instance
+  co-located with the dead backend keeps holding the VIP and just routes
+  traffic to the surviving node internally.
+- Playbooks, run in this order via `Setup_MariaDB.yaml`:
+  `Setup_MariaDB_Common.yaml` (base config + **bidirectional** replication
+  grants — every host granted for every peer, not just primary→replica, so
+  failover works in either direction), `Setup_MariaDB_Primary.yaml`,
+  `Setup_MariaDB_Replica.yaml`, `Setup_MariaDB_MaxScale.yaml` (installs
+  MaxScale via `mariadb_repo_setup --skip-server`, so it can never silently
+  pull the server onto a newer MariaDB series via `Setup_DebAutoPatch.yaml`),
+  `Setup_MariaDB_VIP.yaml`.
+- A node with a pre-existing (even stopped) replication link to some other
+  host will not auto-rejoin cleanly — see the gotcha below.
+
 ## Known gotchas
 
 - **Airflow's `apache-airflow/airflow` Helm chart (1.22.0) has no top-level
@@ -211,6 +266,35 @@ Templates of interest: `kafka.server.properties.j2`,
   two separate DB engines rather than consolidating on one, since PhotoPrism
   forces the MariaDB/SQLite choice regardless.
 
+- **A node with a pre-existing (even stopped) replication link to some
+  other host silently blocks MaxScale's `auto_rejoin`.** Discovered on pr:
+  `mdb1` had a stale, stopped `CHANGE MASTER` configuration left over from
+  an old topology (pointing at the decommissioned `192.168.30.14` host —
+  presumably the original `mdb2` before the hardware consolidation to
+  `mdb3`). mariadbmon correctly *ignored* it during failover (logged as
+  "Replica connection from ... was ignored ... because its replica sql
+  thread is not running") but then refused to `auto_rejoin` the recovered
+  node afterward, with no explicit error logged either — rejoin treats any
+  pre-existing replication config on the recovering node as ambiguous and
+  won't auto-overwrite it. Fix: `RESET SLAVE ALL` on the affected node,
+  which unblocks the rejoin on the next monitor tick. If a failover test
+  promotes cleanly but the recovered node doesn't rejoin within a couple of
+  monitor intervals, check `SHOW ALL REPLICAS STATUS` for a leftover link
+  before assuming something else is wrong.
+
+- **A VirtualBox snapshot revert resets the guest clock to snapshot time,
+  and `systemd-timesyncd` does not always step-correct a multi-month
+  offset on its own.** Seen on the np VMs after reverting to an older
+  snapshot: the clock was stuck ~6 months in the past despite
+  `timedatectl` reporting "System clock synchronized: yes", which caused
+  `apt` to reject every repo's `InRelease` signature as "not valid yet"
+  (and, as a second-order symptom, apparent package 404s from a stale
+  index built under the wrong clock). Fix: `sudo systemctl restart
+  systemd-timesyncd` forces an immediate re-sync; `timedatectl
+  timesync-status` afterward confirms the real server and offset. Check
+  the clock first on any np VM that was just reverted from a snapshot,
+  before troubleshooting a confusing apt/TLS error as something else.
+
 - **TrueNAS 25.10 "Goldeye" removed the internal Certificate Authority
   signing engine and its UI entirely** (Credentials → Certificates page has
   no CA card/section anymore — this is expected, not a bug) **and removed
@@ -222,21 +306,6 @@ Templates of interest: `kafka.server.properties.j2`,
   assume feature parity across hosts without checking the version first —
   see the area51nas1 hardware migration note above for a concrete case
   where this caused confusion.
-
-- **`mcp-gate01` is dual-homed and replies to other home networks leave via
-  the wrong port.** `eth0` is the TELUS Fibe LAN (`192.168.1.0/24`, DHCP
-  default, metric 100); `eth1` is the lab (`192.168.30.0/24`, static default
-  via `.30.1`, metric 101). Linux routes on destination only, so replies to
-  a client outside `.30` (laptop on `.40`, office `.20`, wired `.10`) match
-  the lower-metric TELUS default, leave `eth0`, and the Fibe router drops
-  them as unsolicited WAN-side packets. Symptom: ping/ssh from a `.30` host
-  works, from other subnets times out; tcpdump shows the request In on `eth1`
-  and the reply Out on `eth0`. Fix is a static return route per client
-  network via `192.168.30.1` on `eth1` (stored in the NetworkManager profile
-  so it survives reboot). A new dual-homed host, or a new client subnet
-  that needs to reach it, needs the same treatment — edit `NETWORKS` in
-  `misc/mcpgate_routes.sh` and re-run it. Traffic between zones is then
-  logged at the central home router.
 
 ## Pre-Ansible bootstrap scripts
 
@@ -305,10 +374,6 @@ layer.
 
 ### area51nas1 hardware migration — done (2026-11-15)
 
-The original `area51nas1` (AM4 Ryzen box) had a recurring hard-lockup fault
-(suspected CPU/socket damage from an earlier CPU swap). Its role was handed
-off to new NAS hardware rather than repaired in place:
-
 - New hardware took over the `area51nas1` hostname and production VIP
   `192.168.30.9`. It runs **TrueNAS 25.10.8 "Goldeye"**.
 - The original box was renamed `area51nas2` and moved to `192.168.30.8` — it
@@ -334,13 +399,51 @@ off to new NAS hardware rather than repaired in place:
 
 ### MariaDB HA pair — done, superseded by Architecture highlights above
 
-The planning notes that used to live here (VIP `192.168.30.10`, MaxScale,
-playbook layout) are superseded: the pair is live on `mdb1`/`mdb2` at VIP
-`192.168.30.15`, now running MariaDB 12.3 LTS. Datadir ended up on a
-dedicated NVMe (`mdb1`: Kingston NV2 1TB at `/var/lib/mysql`, `noatime`) —
-the "bind-mount vs default path" question is resolved in favor of a
-dedicated volume, as originally leaned toward. MaxScale placement (dedicated
-VM vs `lb` hosts) is still genuinely open if/when that layer gets built.
+The pair is live on `mdb1`/`mdb3` (corrected here — earlier notes said
+`mdb1`/`mdb2`; `mdb2` doesn't exist in this repo's inventory) at VIP
+`192.168.30.15`, running MariaDB 12.3 LTS. Datadir ended up on a dedicated
+NVMe (`mdb1`: Kingston NV2 1TB at `/var/lib/mysql`, `noatime`) — the
+"bind-mount vs default path" question is resolved in favor of a dedicated
+volume, as originally leaned toward.
+
+### MariaDB MaxScale automatic failover — done (2026-11-19)
+
+The "MaxScale placement — genuinely open" question above is resolved: see
+"MariaDB HA / MaxScale automatic failover" under Architecture highlights
+for the current design (co-located on each DB host, port swap, no
+preferred primary, cooperative monitoring). Built and proven on np first
+(`tmdb1`/`tmdb2`) — including two full rebuild cycles, upgrading an
+already-running pair in place and a true from-scratch install — before
+touching pr.
+
+- Two real playbook bugs found during np testing, both now permanent fixes
+  in `Setup_MariaDB_Replica.yaml`: (1) an already-configured replica never
+  picked up a changed `mariadb_port` — the idempotency gate only handled
+  brand-new replicas — fixed with an explicit stop/repoint/start block that
+  runs whenever the configured port doesn't match; (2) a truly fresh
+  primary with zero prior GTID-tagged writes produces a *legitimately
+  empty* `gtid_slave_pos` in its seeding dump, which the old extraction
+  regex treated as a hard failure — fixed to distinguish "no GTID comment
+  at all" (real error, dump wasn't taken with `--gtid`) from "comment
+  present, position legitimately empty" (normal for a brand-new pair).
+- pr-specific finding, not a code bug: see the new "pre-existing
+  replication link blocks auto_rejoin" entry under Known gotchas.
+- Pre-change backups (`mysqldump --single-transaction --gtid
+  --master-data=2`, both a consolidated `--all-databases` dump and
+  separate per-database dumps) taken on pr before cutover, restore-tested
+  on the np VMs with an exact `COUNT(*)` match on representative tables
+  before touching pr. Worth repeating this pattern — verify a backup by
+  actually restoring it somewhere, not just confirming the file exists —
+  for any future destructive-leaning change here.
+- Airflow and Photoprism needed zero connection-string changes, confirmed
+  live on pr: both were scaled down/stopped before cutover, backed up,
+  brought back after cutover and a full failover+rejoin test passed, and
+  came back up cleanly against `mariadb_vip:3306` exactly as before.
+- **Not yet done, deliberately deferred:** `Shutdown_all.yaml` still
+  hardcodes "mdb3 is always the replica, shut it down before mdb1" — now
+  actively wrong, since either node can hold the primary role at any time
+  post-failover. Needs a live role check (`@@read_only` or `maxctrl list
+  servers`) added before it's relied on again.
 
 ### Read-only MCP gateway — Claude connected, Gemini parked (as of 2026-11-15)
 
@@ -475,7 +578,6 @@ infrastructure** as the authorization server instead of writing our own
   trialled manually on a VirtualBox VM first; a `logs` inventory group and
   `tvl01` host get added when the playbook is written. BigQuery stays the
   archive; k8s pod logs via a Fluent Bit DaemonSet are a later phase.
-- Migrate Photoprism db from local db to MariaDB HA pair
 - add more monthly data sets from StatsCan as Airflow DAG's in same way we did
   CPI data
 - ArgoCD for GitOps sync from `k8s/`.

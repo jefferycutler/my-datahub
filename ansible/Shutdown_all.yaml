@@ -17,6 +17,9 @@
 # A pause is inserted between each group to give hosts time to finish
 # powering off before the next group is targeted. Run with --limit or
 # comment out plays if you only want to shut down part of the fleet.
+#
+#  -- FUTURE UPDATE, Need to fix order of mdb3/mdb1 after MaxSale deployment
+#  --  DO NOT RUN if this has not been updated yet
 #################################################################################
 
 - name: Shut down Zabbix monitoring host

@@ -64,6 +64,39 @@
       register: replica_status
 
   #################################################################
+  # Repoint an already-configured replica if mariadb_port changed under it
+  # (e.g. the MaxScale port swap: mariadbd moving off 3306 so MaxScale can
+  # take that port over).  Without this, an already-replicating host would
+  # silently keep trying the old port forever — the seed block below only
+  # runs for a brand-new replica, not one that's already configured.
+    - name: Repoint replication if the primary's port has changed
+      when:
+        - replica_status.Is_Replica | default(false)
+        - (replica_status.Master_Port | default(0) | int) != (mariadb_port | default(3307) | int)
+      block:
+
+        - name: Stop replica before repointing port
+          community.mysql.mysql_replication:
+            mode: stopreplica
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        - name: Repoint replica to the current primary port
+          community.mysql.mysql_replication:
+            mode: changeprimary
+            primary_host: "{{ hostvars[mariadb_primary_host].ansible_host }}"
+            primary_port: "{{ mariadb_port | default(3307) }}"
+            primary_user: "{{ mariadb_repl_user }}"
+            primary_password: "{{ mariadb_repl_pw }}"
+            primary_use_gtid: replica_pos
+            primary_ssl: false
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+        - name: Start replica after repointing port
+          community.mysql.mysql_replication:
+            mode: startreplica
+            login_unix_socket: /var/run/mysqld/mysqld.sock
+
+  #################################################################
   # Seed from primary dump and configure replication.
   # The block only runs if SHOW REPLICA STATUS came back empty.
     - name: Seed replica from primary dump and start replication
@@ -97,16 +130,22 @@
         # The dump was taken with --master-data=2 --gtid so the position is
         # embedded as a comment near the end:
         #   -- SET GLOBAL gtid_slave_pos='1-1-5';
+        # On a brand-new primary with no GTID-tagged transaction yet (true
+        # fresh install), that position is legitimately empty — '[^']*'
+        # (zero-or-more, not one-or-more) so grep still matches and reports
+        # rc=0 in that case; rc=1 only means the comment line itself is
+        # missing, i.e. the dump genuinely wasn't taken with --gtid.
         - name: Extract gtid_slave_pos from dump
           ansible.builtin.shell:
-            cmd: "grep -oP \"SET GLOBAL gtid_slave_pos='\\K[^']+\" {{ mariadb_dump_path }}"
+            cmd: "grep -oP \"SET GLOBAL gtid_slave_pos='\\K[^']*\" {{ mariadb_dump_path }}"
           register: gtid_position
           changed_when: false
+          failed_when: false
 
-        - name: Fail if GTID position could not be extracted
+        - name: Fail if dump wasn't taken with --gtid
           ansible.builtin.fail:
-            msg: "No GTID position found in {{ mariadb_dump_path }} — was the dump taken with --gtid?"
-          when: gtid_position.stdout | trim | length == 0
+            msg: "No GTID position comment found in {{ mariadb_dump_path }} — was the dump taken with --gtid?"
+          when: gtid_position.rc != 0
 
         # Defensive: clear any half-configured replica state before reseeding.
         - name: Stop any existing replica thread
@@ -148,7 +187,7 @@
           community.mysql.mysql_replication:
             mode: changeprimary
             primary_host: "{{ hostvars[mariadb_primary_host].ansible_host }}"
-            primary_port: "{{ mariadb_port | default(3306) }}"
+            primary_port: "{{ mariadb_port | default(3307) }}"
             primary_user: "{{ mariadb_repl_user }}"
             primary_password: "{{ mariadb_repl_pw }}"
             primary_use_gtid: replica_pos   # module rename of slave_pos in community.mysql 3.x

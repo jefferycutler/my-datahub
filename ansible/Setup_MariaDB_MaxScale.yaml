@@ -1,0 +1,131 @@
+---
+#################################################################################
+# Setup_MariaDB_MaxScale.yaml
+#
+# Installs and configures MariaDB MaxScale on every host in the `databases`
+# group, replacing passive (liveness-only) failover with MaxScale's
+# mariadbmon monitor: it tracks real replication state, promotes a replica
+# to primary automatically if the primary dies (auto_failover), and
+# reattaches a recovered former-primary as a replica (auto_rejoin) — all
+# without an operator running CHANGE MASTER by hand.
+#
+# MaxScale is co-located on each DB host rather than run on a separate
+# host: every instance monitors *both* servers and can proxy to whichever
+# one is currently primary, so Setup_MariaDB_VIP.yaml's keepalived VIP can
+# front "whichever MaxScale is up" instead of "whichever mariadb is up".
+#
+# Ports are swapped from the pre-MaxScale default so existing application
+# connection strings (Airflow, Photoprism) don't have to change: MaxScale's
+# RW-Split-Listener binds maxscale_port (3306, the port they already use),
+# and the actual mariadbd processes move to mariadb_port (3307, direct
+# access only — not what applications should use).  See inventory.np.yaml.
+#
+# Prerequisite: Setup_MariaDB_Common.yaml, _Primary.yaml and _Replica.yaml
+# have already been applied (mariadb running, replication configured, and
+# — important for failover to work in both directions — the bidirectional
+# replication-user grants from Setup_MariaDB_Common.yaml are in place).
+#
+# The MariaDB package repo is deliberately NOT added here (--skip-server):
+# only the MaxScale repo is configured, so a later Setup_DebAutoPatch.yaml
+# run can't silently pull these hosts onto a newer MariaDB server series.
+#
+# Usage:
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_MaxScale.yaml
+#   ansible-playbook -i inventory.np.yaml Setup_MariaDB_MaxScale.yaml --check
+#################################################################################
+- name: Install and configure MariaDB MaxScale
+  hosts: databases
+  become: yes
+  vars_files:
+    - secrets.yaml
+
+  tasks:
+
+    - name: Skip hosts that have no mariadb_role
+      ansible.builtin.meta: end_host
+      when: mariadb_role is not defined
+
+  #################################################################
+  # Package installation
+    - name: Add MariaDB MaxScale apt repository (server repo skipped)
+      ansible.builtin.shell:
+        cmd: >
+          curl -LsS https://r.mariadb.com/downloads/mariadb_repo_setup |
+          bash -s -- --skip-server --mariadb-maxscale-version=latest
+        creates: /etc/apt/sources.list.d/mariadb.sources
+
+    - name: Install MaxScale
+      ansible.builtin.apt:
+        name: maxscale
+        state: present
+        update_cache: yes
+
+  #################################################################
+  # Monitor + service DB users
+  # Granted on every host for every host's IP (not just peers) so that
+  # either co-located MaxScale instance can reach either backend, and
+  # re-run from either node converges to the same end state.
+    - name: Create MaxScale monitor user and grants
+      community.mysql.mysql_query:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        query:
+          - "CREATE USER IF NOT EXISTS '{{ maxscale_monitor_user }}'@'{{ hostvars[item].ansible_host }}' IDENTIFIED BY '{{ maxscale_monitor_pw }}'"
+          - "GRANT REPLICA MONITOR, READ_ONLY ADMIN, REPLICATION SLAVE ADMIN, BINLOG ADMIN, CONNECTION ADMIN, PROCESS, RELOAD, SET USER ON *.* TO '{{ maxscale_monitor_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.user TO '{{ maxscale_monitor_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.global_priv TO '{{ maxscale_monitor_user }}'@'{{ hostvars[item].ansible_host }}'"
+      loop: "{{ groups['databases'] }}"
+
+    - name: Create MaxScale service user and grants
+      community.mysql.mysql_query:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        query:
+          - "CREATE USER IF NOT EXISTS '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}' IDENTIFIED BY '{{ maxscale_service_pw }}'"
+          - "GRANT SELECT ON mysql.user TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.db TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.tables_priv TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.columns_priv TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.procs_priv TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.proxies_priv TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SELECT ON mysql.roles_mapping TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+          - "GRANT SHOW DATABASES ON *.* TO '{{ maxscale_service_user }}'@'{{ hostvars[item].ansible_host }}'"
+      loop: "{{ groups['databases'] }}"
+
+  #################################################################
+  # MaxScale configuration
+    - name: Deploy MaxScale configuration
+      ansible.builtin.template:
+        src: templates/maxscale.cnf.j2
+        dest: /etc/maxscale.cnf
+        owner: root
+        group: maxscale
+        mode: "0640"
+      notify: restart maxscale
+
+    - name: Enable and start MaxScale
+      ansible.builtin.systemd:
+        name: maxscale
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  #################################################################
+  # Verify (runs every play so the user always sees state).  maxctrl
+  # authenticates over MaxScale's local Unix admin socket when run as
+  # root on the same host, so no REST credentials are needed here.
+    - name: Apply config changes before verifying
+      ansible.builtin.meta: flush_handlers
+
+    - name: Query MaxScale server status
+      ansible.builtin.command: maxctrl list servers
+      register: maxctrl_servers
+      changed_when: false
+
+    - name: Show MaxScale server status
+      ansible.builtin.debug:
+        msg: "{{ maxctrl_servers.stdout_lines }}"
+
+  handlers:
+    - name: restart maxscale
+      ansible.builtin.systemd:
+        name: maxscale
+        state: restarted

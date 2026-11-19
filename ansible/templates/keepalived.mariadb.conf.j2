@@ -1,16 +1,23 @@
 # Ansible-managed: Keepalived for the MariaDB pair
-# Deployed by Setup_MariaDB_VIP.yaml.  Runs alongside MariaDB on the same hosts;
-# the VIP defined here (mariadb_vip) floats between the primary and replica.
+# Deployed by Setup_MariaDB_VIP.yaml.  Runs alongside MariaDB (and, since
+# Setup_MariaDB_MaxScale.yaml, alongside a co-located MaxScale instance) on
+# the same hosts; the VIP defined here (mariadb_vip) floats between the two.
+#
+# Fronts MaxScale, not mariadb directly: clients connect to
+# mariadb_vip:maxscale_port, and MaxScale's own monitor (mariadbmon) tracks
+# which backend is actually primary and routes accordingly.  That means
+# this health check only needs to know "is maxscale up" — it doesn't need
+# to know or care which backend is currently primary, since either
+# co-located MaxScale instance can reach and correctly route to both.
 #
 # Design notes:
 #  * Both nodes start as BACKUP with nopreempt.  The higher-priority node
 #    (the primary) wins the initial election and holds the VIP.
-#  * If the holder's mariadb service dies, chk_mariadb lowers its priority
+#  * If the holder's maxscale service dies, chk_maxscale lowers its priority
 #    by `weight` and the other node takes over.
 #  * `nopreempt` keeps the VIP put after a takeover — recovering the original
-#    primary will not snatch the VIP back automatically.  Failback is a
-#    deliberate, manual operation (because it requires also flipping
-#    read_only and confirming GTID positions on both sides).
+#    holder will not snatch the VIP back automatically.  Failback is a
+#    deliberate, manual operation.
 
 global_defs {
     router_id {{ ansible_hostname }}
@@ -18,9 +25,9 @@ global_defs {
     enable_script_security
 }
 
-# Health check: mariadb must be active per systemd.  Lightweight, no DB auth.
-vrrp_script chk_mariadb {
-    script "/usr/bin/systemctl is-active --quiet mariadb"
+# Health check: maxscale must be active per systemd.  Lightweight, no DB auth.
+vrrp_script chk_maxscale {
+    script "/usr/bin/systemctl is-active --quiet maxscale"
     interval 2
     weight  -60    # negative weight: failures reduce priority, triggers failover
     fall    2      # require 2 consecutive failures before deciding "down"
@@ -55,6 +62,6 @@ vrrp_instance VI_MDB {
     }
 
     track_script {
-        chk_mariadb
+        chk_maxscale
     }
 }

@@ -8,6 +8,10 @@
 server_id               = {{ mariadb_server_id }}
 
 # Listen on all interfaces so the replica and MaxScale can reach this node.
+# mariadb_port is intentionally NOT 3306 once MaxScale is deployed — 3306 is
+# reserved for MaxScale's own listener so application connection strings
+# don't have to change.  This port is for inter-node replication and
+# MaxScale's backend connections only; see inventory.np.yaml.
 bind-address            = 0.0.0.0
 port                    = {{ mariadb_port }}
 datadir                 = {{ mariadb_datadir }}
