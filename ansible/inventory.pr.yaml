@@ -166,3 +166,12 @@ all:
           mariadb_gtid_domain_id: 3
           mariadb_buffer_pool_size: "8G"
           auto_patch_day: Sat
+
+    monitor:
+      vars:
+        zagent: true
+      hosts:
+        viclog:
+          ansible_host: 192.168.30.19
+          architecture: x86_64
+          auto_patch_day: Mon

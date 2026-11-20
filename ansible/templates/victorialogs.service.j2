@@ -1,0 +1,27 @@
+# Ansible-managed: VictoriaLogs systemd service
+[Unit]
+Description=VictoriaLogs
+Documentation=https://docs.victoriametrics.com/victorialogs/
+Requires=network.target local-fs.target
+After=network.target local-fs.target var-lib-victorialogs.mount
+
+[Service]
+Type=simple
+ExecStart={{ victorialogs_install_dir }}/victoria-logs-prod \
+    -storageDataPath={{ victorialogs_data_dir }} \
+    -httpListenAddr={{ victorialogs_http_listen_addr }} \
+    -retentionPeriod={{ victorialogs_retention_period }} \
+    -retention.maxDiskUsagePercent={{ victorialogs_max_disk_usage_percent }} \
+    -tls=true \
+    -tlsCertFile={{ victorialogs_tls_cert }} \
+    -tlsKeyFile={{ victorialogs_tls_key }} \
+    -httpAuth.username={{ victorialogs_user }} \
+    -httpAuth.password={{ victorialogs_pw }}
+WorkingDirectory={{ victorialogs_install_dir }}
+User=victorialogs
+Group=victorialogs
+Restart=on-failure
+TimeoutSec=90
+
+[Install]
+WantedBy=multi-user.target

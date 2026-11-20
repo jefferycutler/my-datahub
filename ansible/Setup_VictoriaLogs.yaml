@@ -1,0 +1,181 @@
+---
+#################################################################################
+# Setup_VictoriaLogs.yaml
+#
+# Installs VictoriaLogs (single-binary log datastore) on the `monitor` group.
+# Downloads the upstream GitHub release binary and runs it as a systemd
+# service under a dedicated user, mirroring Setup_Kafka.yaml's pattern.
+#
+# Expects victorialogs_data_dir to already be a mounted block device (zvol
+# over iSCSI, or any other block storage) — this playbook only fixes
+# ownership on it, it does not partition/format/mount anything.
+#
+# Usage:
+#   ansible-playbook Setup_VictoriaLogs.yaml -i inventory.pr.yaml --limit viclog
+#################################################################################
+- name: Install VictoriaLogs
+  hosts: monitor
+  become: true
+  vars_files:
+    - "secrets.yaml"
+  vars:
+    victorialogs_version: "1.54.0"
+    victorialogs_url: "https://github.com/VictoriaMetrics/VictoriaLogs/releases/download/v{{ victorialogs_version }}/victoria-logs-linux-amd64-v{{ victorialogs_version }}.tar.gz"
+    victorialogs_install_dir: /opt/victorialogs
+    victorialogs_data_dir: /var/lib/victorialogs
+    victorialogs_http_port: 9428
+    victorialogs_http_listen_addr: ":{{ victorialogs_http_port }}"
+    # VictoriaLogs' own default is 7d. Confirm this matches the intended
+    # retention policy before go-live - deliberately not left at the
+    # upstream default since 7 days is almost certainly too short here.
+    victorialogs_retention_period: "12M"
+    # Independent disk-usage backstop: whichever of this or
+    # victorialogs_retention_period is hit first prunes the oldest
+    # per-day partitions. Protects against the actual ingestion volume
+    # (not yet decided - Fluent Bit->VictoriaLogs wiring is a later
+    # phase) turning out larger than 12M of data fits on this disk.
+    victorialogs_max_disk_usage_percent: 80
+    # Single shared HTTP Basic Auth credential - gates the whole server
+    # (vmui browsing AND /insert/* ingestion alike; VictoriaLogs has no
+    # per-path auth). victorialogs_user/victorialogs_pw come from
+    # secrets.yaml. A future log shipper needs this same credential.
+    victorialogs_tls_dir: /etc/victorialogs/tls
+    victorialogs_tls_key: "{{ victorialogs_tls_dir }}/victorialogs.key"
+    victorialogs_tls_csr: "{{ victorialogs_tls_dir }}/victorialogs.csr"
+    victorialogs_tls_cert: "{{ victorialogs_tls_dir }}/victorialogs.crt"
+
+  tasks:
+    #################################################################
+    # Create a dedicated service account
+    - name: Create victorialogs user
+      ansible.builtin.user:
+        name: victorialogs
+        shell: /bin/bash
+        password: "!"
+
+    #################################################################
+    # Download and install the binary
+    - name: Download VictoriaLogs release
+      ansible.builtin.get_url:
+        url: "{{ victorialogs_url }}"
+        dest: "/tmp/victoria-logs-{{ victorialogs_version }}.tar.gz"
+        mode: "0644"
+
+    - name: Ensure install directory exists
+      ansible.builtin.file:
+        path: "{{ victorialogs_install_dir }}"
+        state: directory
+        owner: victorialogs
+        group: victorialogs
+        mode: "0755"
+
+    - name: Extract VictoriaLogs binary
+      ansible.builtin.unarchive:
+        src: "/tmp/victoria-logs-{{ victorialogs_version }}.tar.gz"
+        dest: "{{ victorialogs_install_dir }}"
+        remote_src: yes
+        creates: "{{ victorialogs_install_dir }}/victoria-logs-prod"
+
+    - name: Set ownership of install directory
+      ansible.builtin.file:
+        path: "{{ victorialogs_install_dir }}"
+        owner: victorialogs
+        group: victorialogs
+        recurse: true
+
+    #################################################################
+    # Data directory - filesystem must already be mounted here
+    # (see repo notes on the dedicated disk); this only fixes ownership.
+    - name: Set ownership of data directory
+      ansible.builtin.file:
+        path: "{{ victorialogs_data_dir }}"
+        state: directory
+        owner: victorialogs
+        group: victorialogs
+        mode: "0750"
+
+    #################################################################
+    # Self-signed TLS cert - server-side only, no client certs
+    # distributed anywhere. A future log shipper just points at
+    # https://<host>:9428 and accepts/skips verification of this cert,
+    # same as the self-signed cert already in use on the new NAS web UI.
+    #
+    # community.crypto's modules below run on the target host and need
+    # the `cryptography` Python library there - installed via apt rather
+    # than pip to avoid Debian 13's externally-managed-environment guard.
+    - name: Ensure python3-cryptography is installed for community.crypto
+      ansible.builtin.apt:
+        name: python3-cryptography
+        state: present
+        update_cache: yes
+
+    - name: Ensure TLS directory exists
+      ansible.builtin.file:
+        path: "{{ victorialogs_tls_dir }}"
+        state: directory
+        owner: victorialogs
+        group: victorialogs
+        mode: "0750"
+
+    - name: Generate private key for self-signed TLS cert
+      community.crypto.openssl_privatekey:
+        path: "{{ victorialogs_tls_key }}"
+        type: RSA
+        size: 2048
+        owner: victorialogs
+        group: victorialogs
+        mode: "0600"
+
+    - name: Generate CSR for self-signed TLS cert
+      community.crypto.openssl_csr:
+        path: "{{ victorialogs_tls_csr }}"
+        privatekey_path: "{{ victorialogs_tls_key }}"
+        common_name: "{{ inventory_hostname }}"
+        subject_alt_name:
+          - "DNS:{{ inventory_hostname }}"
+          - "IP:{{ ansible_host }}"
+        owner: victorialogs
+        group: victorialogs
+        mode: "0640"
+
+    - name: Generate self-signed TLS certificate
+      community.crypto.x509_certificate:
+        path: "{{ victorialogs_tls_cert }}"
+        csr_path: "{{ victorialogs_tls_csr }}"
+        privatekey_path: "{{ victorialogs_tls_key }}"
+        provider: selfsigned
+        selfsigned_not_after: "+3650d"
+        owner: victorialogs
+        group: victorialogs
+        mode: "0644"
+      notify: restart victorialogs
+
+    #################################################################
+    # systemd service
+    - name: Deploy VictoriaLogs systemd service file
+      ansible.builtin.template:
+        src: templates/victorialogs.service.j2
+        dest: /etc/systemd/system/victorialogs.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart victorialogs
+
+    - name: Enable and start VictoriaLogs service
+      ansible.builtin.systemd:
+        name: victorialogs
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Wait for VictoriaLogs HTTP API to be ready
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ victorialogs_http_port }}"
+        timeout: 60
+
+  handlers:
+    - name: restart victorialogs
+      ansible.builtin.systemd:
+        name: victorialogs
+        state: restarted
